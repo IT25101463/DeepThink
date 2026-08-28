@@ -1,0 +1,68 @@
+# Environment Variables & Secrets (CRITICAL FOR COMPETITION INTEGRITY)
+.env
+.env.*
+*.env
+!.env.example
+secrets.json
+credentials.json
+*.pem
+*.key
+
+# Python & Build
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+.venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Local Vector Databases & Caches
+chroma_db/
+faiss_index/
+.cache/
+data/cache/
+*.sqlite3
+*.db
+
+# Extracted Temp Files / Heavy Test Artifacts
+extracted_raw/
+temp/
+tmp/
+
+# OS Specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

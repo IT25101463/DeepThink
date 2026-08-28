@@ -1,0 +1,35 @@
+{
+  "project": "DeepThink - SLIIT Codefest 2026",
+  "subtrack": "1A - Rich Answers, Not Just Text",
+  "corpus": "The Ashen Era Archive",
+  "ingestion": {
+    "supported_extensions": [".pdf", ".docx", ".md", ".txt", ".png", ".jpg", ".jpeg"],
+    "text_chunk_size": 800,
+    "text_chunk_overlap": 150,
+    "table_parsing": "markdown_table",
+    "image_extraction": {
+      "output_dir": "data/extracted_media",
+      "min_image_width": 100,
+      "min_image_height": 100
+    }
+  },
+  "retrieval": {
+    "embedding_model": "voyage-4",
+    "dense_top_k": 10,
+    "final_top_k": 5,
+    "modality_weights": {
+      "text": 1.0,
+      "table": 1.4,
+      "image-caption": 1.6
+    }
+  },
+  "generation": {
+    "provider": "openrouter",
+    "primary_model": "meta-llama/llama-3.3-70b-instruct:free",
+    "fallback_model": "deepseek/deepseek-chat",
+    "temperature": 0.1,
+    "max_tokens": 1500,
+    "max_retries": 5,
+    "backoff_factor": 2
+  }
+}
