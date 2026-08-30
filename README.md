@@ -24,12 +24,12 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 
 ## 2. Team Structure & Ownership
 
-| Member | Role | Primary Ownership |
-| :--- | :--- | :--- |
-| **P1** | **Data & Ingestion Lead** | Multi-format parsing (PDF, DOCX, MD, Scans), OCR extraction, chunking schema, media linking (`chunks.json`) |
-| **P2** | **Retrieval Lead** | Voyage AI embeddings (`voyage-4`), ChromaDB indexing, modality-aware routing & reranking |
-| **P3** | **Generation Lead** | OpenRouter LLM synthesis, strict grounding prompt engineering, inline figure citation injection, rate-limit resilience |
-| **P4** | **Interface & Documentation Lead** | Streamlit UI with inline image/table rendering, architecture diagrams, demo video, documentation & submission packaging |
+| Member | Role | Core Responsibility (Heavy Lifting) | Delivery / Secondary Focus |
+| :--- | :--- | :--- | :--- |
+| **P1** | **Document Parsing & OCR Lead** | Ingesting 415 corpus files (PDF/DOCX/MD/TXT), running OCR (Tesseract) on degraded simulated scans. | Section hierarchy & text chunking. |
+| **P2** | **Visual & Table Extraction Lead** | Extracting figure plates, diagrams, maps, cropping images, converting complex codex tables to Markdown. | Generating image captions & media metadata. |
+| **P3** | **Retrieval & Reranking Lead** | Voyage AI embeddings (`voyage-4`), ChromaDB indexing, query intent classifier, and Voyage `rerank-2.5` reranking. | Modality score boosting ($\mathbf{W}_{\text{modality}}$). |
+| **P4** | **Generation, Evaluation & Delivery Lead** | OpenRouter LLM grounding, automated benchmark evaluation on `sample_questions.json`, metric tracking. | Streamlit UI integration, 5-page report & 10-min demo video. |
 
 *Every team member actively reviews and understands the complete pipeline.*
 
@@ -39,20 +39,22 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 
 ```mermaid
 graph TD
-    A[Ashen Era Archive<br/>PDF, DOCX, MD, TXT, Scans] --> B[P1: Multi-Format Parser & Ingestion]
-    B --> C[Standard Chunks Contract<br/>chunks.json]
-    B --> D[Extracted Media Assets<br/>data/extracted_media/]
+    A[Ashen Era Archive<br/>PDF, DOCX, MD, TXT, Scans] --> B1[P1: Parsing & OCR Engine]
+    A --> B2[P2: Visual & Table Extractor]
+    B1 --> C[Standard Chunks Contract<br/>chunks.json]
+    B2 --> C
+    B2 --> D[Extracted Media Assets<br/>data/extracted_media/]
     
-    C --> E[P2: Voyage AI Embedding<br/>voyage-4 Vector Index]
+    C --> E[P3: Voyage-4 Embedding & ChromaDB]
     
-    F[User Query] --> G[P4: Streamlit Web UI]
-    G --> H[P2: Modality-Aware Retrieval]
+    F[User Query] --> G[P4: Streamlit UI]
+    G --> H[P3: Modality-Aware Retrieval + Voyage Reranker]
     E -.-> H
     
-    H --> I[Relevant Context + Linked Media URLs]
-    I --> J[P3: OpenRouter LLM Generation Engine]
+    H --> I[Top-K Multimodal Context Chunks]
+    I --> J[P4: OpenRouter LLM Grounded Generator]
     
-    J --> K[Grounded Response with Inline Figures & Citations]
+    J --> K[Grounded Answer with Inline Figures & Citations]
     K --> G
 ```
 
@@ -80,10 +82,10 @@ DeepThink/
 │   ├── diagrams/                       # Visual architecture and flow diagrams
 │   └── workflows/                      # Detailed per-member execution workflows
 │       ├── TEAM_WORKFLOW.md            # Sprints 0-5 master schedule
-│       ├── P1_DATA_INGESTION.md        # Member 1 workflow
-│       ├── P2_RETRIEVAL.md             # Member 2 workflow
-│       ├── P3_GENERATION.md            # Member 3 workflow
-│       └── P4_INTERFACE_DOCS.md        # Member 4 workflow
+│       ├── P1_DOCUMENT_PARSING_OCR.md  # Member 1 workflow
+│       ├── P2_VISUAL_TABLE_EXTRACTION.md # Member 2 workflow
+│       ├── P3_RETRIEVAL_RANKING.md     # Member 3 workflow
+│       └── P4_GENERATION_EVALUATION.md # Member 4 workflow
 ├── src/                                # Modular source code implementation
 ├── ai_usage/
 │   ├── ai-usage-disclosure.md          # Mandatory AI Usage Disclosure
@@ -121,13 +123,16 @@ cp configuration-example/.env.example .env
 
 ### 5.3 Running the Pipeline
 ```bash
-# Step 1: Parse and chunk the archive
+# Step 1: Parse, OCR, and extract figures/tables
 python -m src.ingestion.pipeline
 
 # Step 2: Index chunks into the vector store
 python -m src.retrieval.indexer
 
-# Step 3: Launch the interactive Streamlit assistant
+# Step 3: Run benchmark evaluation
+python -m src.evaluation.evaluator
+
+# Step 4: Launch the interactive Streamlit assistant
 streamlit run src/ui/app.py
 ```
 

@@ -12,33 +12,37 @@ DeepThink is designed to bridge the gap between unstructured multi-format enterp
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion Layer [P1: Ingestion & Extraction]
-        Corpus[Ashen Era Archive<br/>PDF, DOCX, MD, TXT, Scans] --> Parser[Multi-Modal File Parser]
-        Parser --> OCR[Tesseract / OCR Engine for Scans]
-        Parser --> ExtImg[Figure & Image Extractor]
-        Parser --> ExtTab[Table to Markdown Extractor]
-        Parser --> TextChunk[Hierarchical Text Chunking]
+    subgraph Ingestion Layer [P1 & P2: Ingestion & Extraction]
+        Corpus[Ashen Era Archive<br/>PDF, DOCX, MD, TXT, Scans] --> Parser[P1: Multi-Format File Parser]
+        Corpus --> OCR[P1: Tesseract OCR for Scans]
+        Corpus --> ExtImg[P2: Figure & Image Extractor]
+        Corpus --> ExtTab[P2: Table to Markdown Extractor]
+        Parser --> TextChunk[P1: Hierarchical Text Chunking]
         ExtImg --> ChunksContract[(chunks.json Contract)]
         ExtTab --> ChunksContract
         TextChunk --> ChunksContract
+        OCR --> ChunksContract
         ExtImg --> MediaStore[(data/extracted_media/)]
+        ExtTab --> MediaStore
     end
 
-    subgraph Retrieval Layer [P2: Indexing & Modality-Aware Retrieval]
+    subgraph Retrieval Layer [P3: Indexing & Modality-Aware Retrieval]
         ChunksContract --> VoyageEmbed[Voyage AI voyage-4 Embedding]
         VoyageEmbed --> ChromaIndex[(ChromaDB Vector Store)]
-        UserQuery[User Question] --> IntentClassifier[Modality Intent Classifier]
+        UserQuery[User Question] --> IntentClassifier[Query Intent Classifier]
         IntentClassifier --> HybridSearch[Modality-Aware Hybrid Retriever]
         ChromaIndex --> HybridSearch
-        HybridSearch --> RankedChunks[Top-K Modality-Weighted Chunks]
+        HybridSearch --> VoyageReranker[Voyage rerank-2.5 Reranker]
+        VoyageReranker --> RankedChunks[Top-K Modality-Weighted Chunks]
     end
 
-    subgraph Generation Layer [P3: Synthesis & Citation Grounding]
+    subgraph Generation & Evaluation Layer [P4: Synthesis & Grounding]
         RankedChunks --> PromptBuilder[Context & Citation Assembler]
         UserQuery --> PromptBuilder
         PromptBuilder --> OpenRouterLLM[OpenRouter LLM Engine<br/>Llama-3.3 / DeepSeek]
         OpenRouterLLM --> HallucinationGuard[Grounding & Citation Validator]
         HallucinationGuard --> FormattedOutput[Markdown Answer + Inline Media Links]
+        FormattedOutput --> Evaluator[Automated Evaluation Suite<br/>src/evaluation/]
     end
 
     subgraph Interface Layer [P4: Interactive Visualization UI]
@@ -52,7 +56,7 @@ flowchart TD
 
 ## 2. Core Data Contract: `chunks.json`
 
-The shared contract uniting Ingestion (P1), Retrieval (P2), Generation (P3), and UI (P4) is the standardized `chunks.json` schema.
+The shared contract uniting Ingestion (P1/P2), Retrieval (P3), Generation, and Evaluation (P4) is the standardized `chunks.json` schema.
 
 ```json
 [
@@ -90,11 +94,12 @@ Standard semantic search models match query terms against nearest text tokens. W
 A naive RAG pipeline retrieves paragraphs describing the Sky-Fortress, completely ignoring the schematic diagram on plate 14.
 
 ### DeepThink Modality-Aware Solution:
-1. **Query Intent Detection:** A lightweight classifier / heuristic parses whether the question asks for visual figures (`"diagram"`, `"figure"`, `"plate"`, `"map"`, `"show"`, `"look like"`) or structured data (`"table"`, `"specifications"`, `"stats"`, `"cost"`, `"dimensions"`).
+1. **Query Intent Detection:** A lightweight classifier parses whether the question asks for visual figures (`"diagram"`, `"figure"`, `"plate"`, `"map"`, `"show"`, `"look like"`) or structured data (`"table"`, `"specifications"`, `"stats"`, `"cost"`, `"dimensions"`).
 2. **Dynamic Modality Weighting:**
    $$\text{FinalScore}(c) = \text{CosineSimilarity}(q, c) \times \mathbf{W}_{\text{modality}}(q, c)$$
    Where $\mathbf{W}$ boosts image and table chunks when visual intent is detected.
-3. **Parent Document Context Injection:** When a figure chunk is retrieved, the immediate surrounding text chunk (caption/explanation) is bundled with it.
+3. **Voyage Reranker:** High-precision cross-encoder reranking via Voyage `rerank-2.5`.
+4. **Parent Document Context Injection:** When a figure chunk is retrieved, the immediate surrounding text chunk (caption/explanation) is bundled with it.
 
 ---
 
@@ -112,7 +117,8 @@ The LLM is prompted with strict grounding rules:
 
 ## 5. Directory Mapping & Modules
 
-- `src/ingestion/`: P1 modules for PDF/DOCX parsing, OCR, and chunk generation.
-- `src/retrieval/`: P2 modules for Voyage AI embeddings and ChromaDB retriever.
-- `src/generation/`: P3 modules for OpenRouter LLM calling, prompt formatting, and retry logic.
+- `src/ingestion/`: P1 (Text/OCR) and P2 (Visual/Table) modules for PDF/DOCX parsing, OCR, and figure extraction.
+- `src/retrieval/`: P3 modules for Voyage AI embeddings, ChromaDB, intent routing, and reranking.
+- `src/generation/`: P4 modules for OpenRouter LLM calling, prompt formatting, and retry logic.
+- `src/evaluation/`: P4 modules for automated metric evaluation against the 20 sample questions.
 - `src/ui/`: P4 modules for Streamlit chat interface and media rendering.

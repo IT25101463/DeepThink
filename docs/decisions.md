@@ -31,7 +31,7 @@ This document records the key architectural and design decisions made throughout
 - **Status:** Accepted
 - **Context:** Four team members need to work concurrently on ingestion, retrieval, generation, and UI without blocking one another.
 - **Decision:** Define a strict JSON schema for chunks at Day 1 (`chunks.json`) containing `chunk_id`, `document_name`, `page_number`, `modality` (`text` | `table` | `image-caption`), `content`, `media_path`, and `metadata`.
-- **Rationale:** Decouples ingestion (P1) from retrieval indexing (P2) and generation prompting (P3). P2, P3, and P4 can mock `chunks.json` on Day 1 while P1 builds parsers.
+- **Rationale:** Decouples ingestion (P1/P2) from retrieval indexing (P3) and generation prompting (P4). Members can mock `chunks.json` on Day 1 while parsers are developed.
 - **Trade-offs / Consequences:** Ingestion must populate rich metadata for every extracted item.
 
 ---
@@ -53,3 +53,17 @@ This document records the key architectural and design decisions made throughout
 - **Decision:** Use standard Markdown image syntax `![Caption](path/to/image.png)` in the LLM response. Streamlit parses and renders these dynamically.
 - **Rationale:** Compatible with both terminal/markdown viewers and web UI. No custom proprietary tags needed.
 - **Trade-offs / Consequences:** Prompt must strictly instruct the LLM to only use verified paths provided in the retrieved context to avoid broken image links.
+
+---
+
+## ADR-006: Rebalancing Team Roles for Technical Execution & Rigorous Evaluation
+- **Date:** 2026-08-31
+- **Status:** Accepted
+- **Context:** Competition rubrics allocate 25% to Technical Execution & Robustness, 15% to Problem Understanding, and 15% to Engineering Best Practices, while UI polish is explicitly stated as secondary. Having a dedicated full-time UI developer leaves the team under-resourced on heavy document extraction and evaluation.
+- **Decision:** Rebalance the 4 roles:
+  1. **P1:** Document Parsing & OCR Lead (Text, layout, degraded scan OCR).
+  2. **P2:** Visual & Table Extraction Lead (Figure plates, maps, Markdown tables, media assets).
+  3. **P3:** Retrieval & Reranking Lead (Voyage-4 embeddings, ChromaDB, intent routing, Voyage rerank-2.5).
+  4. **P4:** Generation, Evaluation & Delivery Lead (Grounded LLM, automated benchmark evaluation, lightweight Streamlit UI, demo video & report).
+- **Rationale:** Distributes the difficult multimodal extraction workload evenly, introduces a dedicated owner for rigorous evaluation and hallucination elimination, and treats UI as a lightweight presentation layer.
+- **Trade-offs / Consequences:** Streamlit interface is implemented with minimal boilerplate, freeing up P4 to focus on quantitative benchmark accuracy and report writing.

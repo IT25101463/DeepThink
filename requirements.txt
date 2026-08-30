@@ -1,0 +1,33 @@
+# ==============================================================================
+# SLIIT Codefest 2026 - AI Competition
+# DeepThink Dependencies
+# ==============================================================================
+
+# Core & Configuration
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+requests>=2.31.0
+tenacity>=8.2.0
+tqdm>=4.66.0
+
+# Document Ingestion & OCR (P1 & P2)
+pymupdf>=1.23.0        # PDF parsing and image extraction (fitz)
+pdfplumber>=0.10.0      # PDF table parsing
+python-docx>=1.1.0      # DOCX files parsing
+pytesseract>=0.3.10     # Tesseract OCR engine wrapper
+pillow>=10.0.0          # Image processing and verification
+markdown>=3.5.0         # Markdown text utilities
+
+# Embeddings & Vector Search (P3)
+voyageai>=0.2.0         # Voyage AI voyage-4 & rerank-2.5 SDK
+chromadb>=0.4.22        # Local embedded vector database
+numpy>=1.24.0
+
+# LLM & Generation (P4)
+openai>=1.12.0          # OpenAI SDK configured for OpenRouter endpoint
+
+# Web UI & Visualization (P4)
+streamlit>=1.31.0       # Interactive chat interface
+
+# Testing & Linting
+pytest>=7.4.0
