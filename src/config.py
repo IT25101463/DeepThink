@@ -5,11 +5,16 @@ Loads environment variables from .env and settings from configuration-example/co
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+
+# Graceful dotenv loader
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
 
 # API Keys
 VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
