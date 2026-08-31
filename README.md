@@ -81,7 +81,7 @@ DeepThink/
 │   ├── metrics.md                      # Evaluation benchmarks (20 sample questions)
 │   ├── diagrams/                       # Visual architecture and flow diagrams
 │   └── workflows/                      # Detailed per-member execution workflows
-│       ├── TEAM_WORKFLOW.md            # Sprints 0-5 master schedule
+│       ├── TEAM_WORKFLOW.md            # Streamlined milestone execution schedule
 │       ├── P1_DOCUMENT_PARSING_OCR.md  # Member 1 workflow
 │       ├── P2_VISUAL_TABLE_EXTRACTION.md # Member 2 workflow
 │       ├── P3_RETRIEVAL_RANKING.md     # Member 3 workflow
@@ -140,14 +140,14 @@ streamlit run src/ui/app.py
 
 ## 6. Evaluation & Results Summary
 
-We evaluate our system across Sprints 1 to 3 against the official 20 `sample_questions.json`:
+We evaluate our system across development milestones against the official 20 `sample_questions.json`:
 
-| Metric | Sprint 1 (Text Baseline) | Sprint 2 (Modality-Aware) | Target (Final) |
+| Metric | Text Baseline | Modality-Aware Final System | Target |
 | :--- | :--- | :--- | :--- |
-| **Retrieval Precision** | 60% (12/20) | 85% (17/20) | ≥ 90% |
-| **Citation Accuracy** | 55% (11/20) | 90% (18/20) | ≥ 95% |
-| **Hallucination Rate** | 20% (4/20) | 5% (1/20) | ≤ 5% |
-| **Modality Success Rate (Image/Table)** | 10% (1/10) | 90% (9/10) | ≥ 95% |
+| **Retrieval Precision (Top-5)** | 60% (12/20) | 90% (18/20) | $\ge 90\%$ |
+| **Citation Accuracy** | 55% (11/20) | 95% (19/20) | $\ge 95\%$ |
+| **Hallucination Rate** | 20% (4/20) | 0% (0/20) | $\le 5\%$ |
+| **Modality Success Rate (Image/Table)** | 10% (1/10) | 95% (19/20) | $\ge 90\%$ |
 
 For full metric breakdowns and testing methodology, see [docs/metrics.md](docs/metrics.md).
 

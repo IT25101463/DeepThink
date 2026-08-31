@@ -18,7 +18,33 @@ Member P2 is responsible for:
 
 ---
 
-## 2. Shared Data Contract (`image-caption` and `table` Chunks)
+## 2. Complete Execution Checklist (Today)
+
+### Stage 1: Figure Plate & Image Extraction
+- [ ] Implement `extract_images_from_pdf(pdf_path, output_dir)` in `src/ingestion/media_extractor.py` using `PyMuPDF` (`fitz`).
+- [ ] Filter out tiny decorative icons, page borders, and blank blocks ($\text{width} \ge 100\text{px}, \text{height} \ge 100\text{px}$).
+- [ ] Save images into `data/extracted_media/figures/<doc>_p<page>_fig<idx>.png`.
+- [ ] Extract nearby caption text and generate `image-caption` chunks.
+
+### Stage 2: Structured Table Extraction
+- [ ] Implement `extract_tables_from_pdf(pdf_path)` in `src/ingestion/table_extractor.py` using `pdfplumber`.
+- [ ] Format extracted tables into clean Markdown tables with aligned header columns.
+- [ ] Generate `table` chunks and optionally save rendered table preview images into `data/extracted_media/tables/`.
+
+### Stage 3: Verification & Integration
+- [ ] Ensure all `media_path` references exist on disk:
+  ```python
+  assert os.path.exists(chunk["media_path"])
+  ```
+- [ ] Merge visual and table chunks with P1 text chunks into `data/chunks.json`.
+- [ ] Validate entire contract:
+  ```bash
+  python3 -m src.utils.schema_validator data/chunks.json
+  ```
+
+---
+
+## 3. Data Contract Format
 
 ```json
 {
@@ -28,65 +54,13 @@ Member P2 is responsible for:
   "page_number": 14,
   "section_title": "Sky-Fortress Pressure Assembly",
   "modality": "image-caption",
-  "content": "Schematic of the primary steam coolant valve showing pressure gauge tolerances and safety bypass.",
+  "content": "Schematic of the primary steam coolant valve showing pressure gauge tolerances, safety bypass conduit, and manual override lever.",
   "media_path": "data/extracted_media/figures/codex_v1_p14_fig02.png",
-  "caption": "Figure 14.2: Coolant Valve Assembly Schematic",
+  "caption": "Figure 14.2: Primary Steam Coolant Valve Assembly Schematic",
   "metadata": {
     "dimensions": [800, 600],
     "source_reliability": "official_codex",
     "related_entities": ["Coolant Valve", "Sky-Fortress", "Pressure Assembly"]
   }
 }
-```
-
----
-
-## 3. Sprint-by-Sprint Execution Plan
-
-### Sprint 0 (Day 1) — Media Schema & Tooling Setup
-- [ ] Inspect codex PDFs and ephemera for image formats, plates, and table layouts.
-- [ ] Set up extraction tools (`PyMuPDF` / `fitz`, `pdfplumber`, `Pillow`).
-- [ ] Create directory structure: `data/extracted_media/figures/`, `data/extracted_media/tables/`.
-- [ ] Validate schema with P1, P3, and P4.
-
-### Sprint 1 (Days 2–4) — Extraction Prototyping
-- [ ] Build script to extract raw images from PDF pages using PyMuPDF.
-- [ ] Filter out tiny decorative icons, page borders, and blank blocks (set minimum width/height thresholds $\ge 100\text{px}$).
-- [ ] Prototype table extraction using `pdfplumber` / markdown serializer.
-- [ ] Provide sample media chunks to P3 and P4 to verify end-to-end rendering flow.
-
-### Sprint 2 (Days 5–9) — Complete Multimodal Asset Pipeline (Sub-track 1A Engine)
-- [ ] Process all 3 codex books full of tables and figure plates.
-- [ ] Extract in-world ephemera images (maps, faction emblems, letter seals).
-- [ ] Associate each image with surrounding caption text and section context to produce rich `image-caption` chunks.
-- [ ] Convert all complex codex tables into clean Markdown tables (preserving header alignment).
-- [ ] Save all extracted media assets with deterministic naming (`<doc>_p<page>_<type><index>.png`).
-- [ ] Merge visual and table chunks into `data/chunks.json`.
-
-### Sprint 3 (Days 10–11) — Quality Audit & Gap Resolution
-- [ ] Verify zero broken links: run verification script asserting `os.path.exists(chunk['media_path'])` for all chunks.
-- [ ] Inspect extracted tables to ensure no merged cells or misaligned columns corrupted numerical data.
-- [ ] Benchmark visual retrieval coverage on figure questions in `sample_questions.json`.
-
-### Sprint 4 (Days 12–13) — Report Contribution
-- [ ] Write the **Visual Asset Extraction, Table Structuring & Multimodal Pipeline** section of the 5-page report.
-- [ ] Include sample figures, extraction architecture, and before/after table extraction examples.
-- [ ] Export AI prompt interaction logs to `ai_usage/claude.md`.
-
-### Sprint 5 (Day 14) — Defense Preparation
-- [ ] Prepare live explanation and demonstration of the extraction and image linking pipeline for judging Q&A.
-
----
-
-## 4. Module Interface & Contract
-
-```python
-from typing import List, Dict, Any
-
-def extract_media_from_pdf(pdf_path: str, output_dir: str) -> List[Dict[str, Any]]:
-    """
-    Extracts figure plates, images, and tables from a PDF file, saves images to disk,
-    and returns a list of modality-tagged chunks.
-    """
-    ...
 ```
