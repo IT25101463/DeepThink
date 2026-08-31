@@ -1,6 +1,7 @@
 """
 Global configuration loader for DeepThink.
 Loads environment variables from .env and settings from configuration-example/config.example.json.
+100% Free & Local-First Architecture (Zero Credit Cards, Zero Secret Leaks).
 """
 
 import os
@@ -16,18 +17,17 @@ try:
 except ImportError:
     pass
 
-# API Keys
-VOYAGE_API_KEY = os.getenv("VOYAGE_API_KEY", "")
+# API Keys (OpenRouter is 100% free with zero credit card needed)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # Model Names
 LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "meta-llama/llama-3.3-70b-instruct:free")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "voyage-4")
+# 100% free local HuggingFace embedding (Zero card / Zero API key needed)
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5")
 
 # Data Directories
 DATA_DIR = PROJECT_ROOT / "data"
-corpus_default = "data/Ashen_Era_Archive" if (PROJECT_ROOT / "data/Ashen_Era_Archive").exists() else "data/ashen_era_archive"
-CORPUS_DIR = PROJECT_ROOT / os.getenv("ASSET_CORPUS_DIR", corpus_default)
+CORPUS_DIR = PROJECT_ROOT / os.getenv("ASSET_CORPUS_DIR", "data/ashen_era_archive")
 EXTRACTED_MEDIA_DIR = PROJECT_ROOT / os.getenv("EXTRACTED_MEDIA_DIR", "data/extracted_media")
 CHUNKS_JSON_PATH = PROJECT_ROOT / os.getenv("CHUNKS_JSON_PATH", "data/chunks.json")
 CHROMA_PERSIST_DIR = PROJECT_ROOT / os.getenv("CHROMA_PERSIST_DIR", "chroma_db")

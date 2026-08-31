@@ -14,7 +14,7 @@
     }
   },
   "retrieval": {
-    "embedding_model": "voyage-4",
+    "embedding_model": "BAAI/bge-small-en-v1.5",
     "dense_top_k": 10,
     "final_top_k": 5,
     "modality_weights": {
