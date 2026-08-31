@@ -11,7 +11,7 @@ from typing import List, Dict, Any
 
 from src.config import CORPUS_DIR, CHUNKS_JSON_PATH, EXTRACTED_MEDIA_DIR, PROJECT_ROOT
 from src.ingestion.parser import parse_document
-from src.ingestion.media_extractor import extract_images_from_pdf
+from src.ingestion.media_extractor import extract_images_from_pdf, extract_standalone_images
 from src.ingestion.table_extractor import extract_tables_from_pdf
 from src.utils.schema_validator import validate_chunk, validate_chunks_file
 
@@ -44,6 +44,25 @@ def run_ingestion_pipeline(corpus_path: Path = CORPUS_DIR, output_path: Path = C
     # Progress tracking
     processed_count = 0
     errors_count = 0
+
+    # 1. P2: Ingest standalone figure plates and wiki illustrations
+    try:
+        standalone_chunks = extract_standalone_images(corpus_path, EXTRACTED_MEDIA_DIR / "figures")
+        for chunk in standalone_chunks:
+            chunk_id = chunk.get("chunk_id")
+            if chunk_id in seen_ids:
+                count = 1
+                new_id = f"{chunk_id}_dup{count}"
+                while new_id in seen_ids:
+                    count += 1
+                    new_id = f"{chunk_id}_dup{count}"
+                chunk["chunk_id"] = new_id
+                chunk_id = new_id
+            seen_ids.add(chunk_id)
+            all_chunks.append(chunk)
+        logger.info(f"Ingested {len(standalone_chunks)} standalone visual asset chunks.")
+    except Exception as e:
+        logger.error(f"Error extracting standalone images: {e}")
 
     for file_path in all_files:
         try:

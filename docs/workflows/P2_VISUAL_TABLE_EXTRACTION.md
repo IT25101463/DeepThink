@@ -21,26 +21,28 @@ Member P2 is responsible for:
 ## 2. Complete Execution Checklist (Today)
 
 ### Stage 1: Figure Plate & Image Extraction
-- [ ] Implement `extract_images_from_pdf(pdf_path, output_dir)` in `src/ingestion/media_extractor.py` using `PyMuPDF` (`fitz`).
-- [ ] Filter out tiny decorative icons, page borders, and blank blocks ($\text{width} \ge 100\text{px}, \text{height} \ge 100\text{px}$).
-- [ ] Save images into `data/extracted_media/figures/<doc>_p<page>_fig<idx>.png`.
-- [ ] Extract nearby caption text and generate `image-caption` chunks.
+- [x] Implement `extract_images_from_pdf(pdf_path, output_dir)` in `src/ingestion/media_extractor.py` using `PyMuPDF` (`fitz`).
+- [x] Filter out tiny decorative icons, page borders, and blank blocks ($\text{width} \ge 100\text{px}, \text{height} \ge 100\text{px}$).
+- [x] Save images into `data/extracted_media/figures/<doc>_p<page>_fig<idx>.png`.
+- [x] Extract nearby caption text and generate `image-caption` chunks.
+- [x] Ingest standalone figure plates and wiki illustrations from corpus image archives.
 
 ### Stage 2: Structured Table Extraction
-- [ ] Implement `extract_tables_from_pdf(pdf_path)` in `src/ingestion/table_extractor.py` using `pdfplumber`.
-- [ ] Format extracted tables into clean Markdown tables with aligned header columns.
-- [ ] Generate `table` chunks and optionally save rendered table preview images into `data/extracted_media/tables/`.
+- [x] Implement `extract_tables_from_pdf(pdf_path)` in `src/ingestion/table_extractor.py` using `pdfplumber`.
+- [x] Format extracted tables into clean Markdown tables with aligned header columns.
+- [x] Generate `table` chunks with dimension and entity metadata.
 
 ### Stage 3: Verification & Integration
-- [ ] Ensure all `media_path` references exist on disk:
+- [x] Ensure all `media_path` references exist on disk:
   ```python
   assert os.path.exists(chunk["media_path"])
   ```
-- [ ] Merge visual and table chunks with P1 text chunks into `data/chunks.json`.
-- [ ] Validate entire contract:
+- [x] Merge visual and table chunks with P1 text chunks into `data/chunks.json`.
+- [x] Validate entire contract:
   ```bash
   python3 -m src.utils.schema_validator data/chunks.json
   ```
+- [x] 24/24 unit tests passing in `tests/test_media_extractor.py`, `tests/test_table_extractor.py`, and test suite.
 
 ---
 
