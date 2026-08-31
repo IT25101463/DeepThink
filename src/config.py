@@ -7,6 +7,13 @@ Loads environment variables from .env and settings from configuration-example/co
 import os
 from pathlib import Path
 
+# Windows SSL root certificates injector
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
