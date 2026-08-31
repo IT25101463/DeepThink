@@ -26,7 +26,8 @@ EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "voyage-4")
 
 # Data Directories
 DATA_DIR = PROJECT_ROOT / "data"
-CORPUS_DIR = PROJECT_ROOT / os.getenv("ASSET_CORPUS_DIR", "data/ashen_era_archive")
+corpus_default = "data/Ashen_Era_Archive" if (PROJECT_ROOT / "data/Ashen_Era_Archive").exists() else "data/ashen_era_archive"
+CORPUS_DIR = PROJECT_ROOT / os.getenv("ASSET_CORPUS_DIR", corpus_default)
 EXTRACTED_MEDIA_DIR = PROJECT_ROOT / os.getenv("EXTRACTED_MEDIA_DIR", "data/extracted_media")
 CHUNKS_JSON_PATH = PROJECT_ROOT / os.getenv("CHUNKS_JSON_PATH", "data/chunks.json")
 CHROMA_PERSIST_DIR = PROJECT_ROOT / os.getenv("CHROMA_PERSIST_DIR", "chroma_db")
