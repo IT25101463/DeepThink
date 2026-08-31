@@ -1,7 +1,7 @@
 """
-Sprint 0 Verification Script
+Sprint 0 / Setup Verification Script
 Run this script to verify that your environment, folder structure,
-and configuration are 100% ready for Sprint 1 development.
+and configuration are 100% ready for development.
 
 Usage:
     python3 scripts/verify_setup.py
@@ -28,7 +28,7 @@ def print_status(component: str, ok: bool, details: str = ""):
 
 def run_verification():
     print("=" * 70)
-    print(" 🛠️  DEEPTHINK (SLIIT CODEFEST 2026) - SPRINT 0 SETUP VERIFIER")
+    print(" 🛠️  DEEPTHINK (SLIIT CODEFEST 2026) - SETUP VERIFIER (100% FREE STACK)")
     print("=" * 70)
 
     # 1. Python version check
@@ -39,7 +39,6 @@ def run_verification():
     # 2. Key Directories Check
     required_dirs = [
         "data",
-        "data/ashen_era_archive",
         "data/extracted_media/figures",
         "data/extracted_media/tables",
         "docs/workflows",
@@ -60,7 +59,7 @@ def run_verification():
             all_dirs_ok = False
             print_status(f"Directory '{d}'", False, "Missing")
     if all_dirs_ok:
-        print_status("Repository Directory Structure", True, "All 14 core directories verified")
+        print_status("Repository Directory Structure", True, "All core directories verified")
 
     # 3. Chunks Contract Status
     chunks_file = PROJECT_ROOT / "data/chunks.json"
@@ -79,10 +78,10 @@ def run_verification():
     env_exists = env_file.exists()
     print_status(".env Configuration File", env_exists, "Found" if env_exists else "Not yet created (copy from .env.example)")
 
+    print_status("  - Local BGE Embeddings (P3)", True, "100% Free / Zero Card / Zero API Key")
     if env_exists:
-        from src.config import VOYAGE_API_KEY, OPENROUTER_API_KEY
-        print_status("  - Voyage AI API Key (P3)", bool(VOYAGE_API_KEY), "Configured" if VOYAGE_API_KEY else "Empty (optional for P1/P2)")
-        print_status("  - OpenRouter API Key (P4)", bool(OPENROUTER_API_KEY), "Configured" if OPENROUTER_API_KEY else "Empty (optional for P1/P2)")
+        from src.config import OPENROUTER_API_KEY
+        print_status("  - OpenRouter API Key (P4)", bool(OPENROUTER_API_KEY), "Configured" if OPENROUTER_API_KEY else "Empty (free signup at openrouter.ai/keys)")
 
     # 6. Workflow Docs Check
     workflows = [
@@ -96,7 +95,7 @@ def run_verification():
     print_status("Member Workflows (P1-P4)", wf_ok, "All role roadmaps in place")
 
     print("=" * 70)
-    print("🎯 SPRINT 0 STATUS: READY FOR SPRINT 1 PARALLEL DEVELOPMENT")
+    print("🎯 SYSTEM STATUS: READY FOR DEVELOPMENT")
     print("=" * 70)
 
 

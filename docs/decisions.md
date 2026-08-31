@@ -14,15 +14,11 @@ This document records the key architectural and design decisions made throughout
 
 ---
 
-## ADR-002: LLM & Embedding Infrastructure (Voyage AI + OpenRouter)
+## ADR-002: LLM & Embedding Infrastructure (OpenRouter + Local BGE)
 - **Date:** 2026-08-29
-- **Status:** Accepted
+- **Status:** Superseded by ADR-008
 - **Context:** Competition rules encourage frugal engineering and free/low-cost API usage with strict rate-limit protection.
-- **Decision:** 
-  - Embeddings: **Voyage AI (`voyage-4`)** using the 200M free token tier.
-  - LLM Generation: **OpenRouter** utilizing free tier high-parameter models (e.g., `meta-llama/llama-3.3-70b-instruct:free`) with automated exponential backoff retry.
-- **Rationale:** Voyage-4 provides frontier-grade semantic embeddings and shares the vector space across lite and large models. OpenRouter provides access to frontier open-weight models without vendor lock-in.
-- **Trade-offs / Consequences:** Must implement robust HTTP 429 backoff handling (`tenacity` / retry loop) to withstand free-tier rate limits.
+- **Decision:** Use OpenRouter for generation and local embeddings for retrieval.
 
 ---
 
@@ -63,17 +59,29 @@ This document records the key architectural and design decisions made throughout
 - **Decision:** Rebalance the 4 roles:
   1. **P1:** Document Parsing & OCR Lead (Text, layout, degraded scan OCR).
   2. **P2:** Visual & Table Extraction Lead (Figure plates, maps, Markdown tables, media assets).
-  3. **P3:** Retrieval & Reranking Lead (Voyage-4 embeddings, ChromaDB, intent routing, Voyage reranker).
+  3. **P3:** Retrieval & Reranking Lead (Embeddings, ChromaDB, intent routing, score boosting).
   4. **P4:** Generation, Evaluation & Delivery Lead (Grounded LLM, automated benchmark evaluation, lightweight Streamlit UI, demo video & report).
 - **Rationale:** Distributes the difficult multimodal extraction workload evenly, introduces a dedicated owner for rigorous evaluation and hallucination elimination, and treats UI as a lightweight presentation layer.
-- **Trade-offs / Consequences:** Streamlit interface is implemented with minimal boilerplate, freeing up P4 to focus on quantitative benchmark accuracy and report writing.
 
 ---
 
 ## ADR-007: Accelerated Direct Multimodal Pipeline Implementation
 - **Date:** 2026-08-31
 - **Status:** Accepted
-- **Context:** Building an artificial text-only system before multimodal extraction delays the core Sub-track 1A deliverable. The team can achieve higher quality by directly implementing the full multimodal ingestion, Voyage-4 modality-aware retrieval, and grounded figure generation from Day 1.
+- **Context:** Building an artificial text-only system before multimodal extraction delays the core Sub-track 1A deliverable. The team can achieve higher quality by directly implementing the full multimodal ingestion, modality-aware retrieval, and grounded figure generation from Day 1.
 - **Decision:** Consolidate development into a direct 3-phase execution roadmap: (1) Core Multimodal Engine Build, (2) Hardening, Rate-Limit Defense & Benchmark Evaluation, and (3) Video Production & Submission Packaging.
 - **Rationale:** Delivers a fully working end-to-end prototype early, maximizing the remaining time available for rigorous adversarial testing, benchmark optimization, and video polish.
-- **Trade-offs / Consequences:** Requires tight coordination across the `chunks.json` contract from the very start.
+
+---
+
+## ADR-008: 100% Free Local Embeddings with BAAI/bge-small-en-v1.5
+- **Date:** 2026-09-01
+- **Status:** Accepted
+- **Context:** Cloud embedding APIs require credit card verification and introduce network latency and HTTP 429 rate limit risks during live evaluations and video recordings.
+- **Decision:** Standardize vector embeddings on **`BAAI/bge-small-en-v1.5`** via HuggingFace `sentence-transformers` running locally inside ChromaDB.
+- **Rationale:** 
+  1. **Zero Cost & Zero Cards:** Requires zero payment cards, zero accounts, and zero external API keys.
+  2. **Zero Rate Limits:** Embeddings compute locally on CPU/Apple Silicon with zero network dependencies.
+  3. **State of the Art Quality:** BGE is top-ranked on the Massive Text Embedding Benchmark (MTEB) for retrieval precision.
+  4. **Native ChromaDB Integration:** ChromaDB natively supports sentence-transformer embedding functions with 2 lines of code.
+- **Trade-offs / Consequences:** Requires initial download of the lightweight model weights (~130MB) on first run.

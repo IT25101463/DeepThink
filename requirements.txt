@@ -1,6 +1,6 @@
 # ==============================================================================
 # SLIIT Codefest 2026 - AI Competition
-# DeepThink Dependencies
+# DeepThink Dependencies (100% Free & Local-First Stack)
 # ==============================================================================
 
 # Core & Configuration
@@ -18,12 +18,12 @@ pytesseract>=0.3.10     # Tesseract OCR engine wrapper
 pillow>=10.0.0          # Image processing and verification
 markdown>=3.5.0         # Markdown text utilities
 
-# Embeddings & Vector Search (P3)
-voyageai>=0.2.0         # Voyage AI voyage-4 & rerank-2.5 SDK
-chromadb>=0.4.22        # Local embedded vector database
+# 100% Free Local Embeddings & Vector Search (P3 - Zero Card / Zero API Key)
+sentence-transformers>=2.2.2  # High-performance local embeddings (BGE / MiniLM)
+chromadb>=0.4.22              # Local embedded vector database
 numpy>=1.24.0
 
-# LLM & Generation (P4)
+# LLM & Generation (P4 - 100% Free OpenRouter / Gemini)
 openai>=1.12.0          # OpenAI SDK configured for OpenRouter endpoint
 
 # Web UI & Visualization (P4)

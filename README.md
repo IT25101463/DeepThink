@@ -17,7 +17,7 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 
 **DeepThink** is an AI document assistant purpose-built for **Sub-track 1A**. When answering queries about the Ashen Era Archive, DeepThink does not stop at textual answers:
 1. **Identifies Query Intent:** Determines whether the answer requires visual diagrams, structured data tables, or textual narrative.
-2. **Performs Modality-Aware Retrieval:** Biases vector search towards relevant images, figure plates, and table chunks.
+2. **Performs Modality-Aware Retrieval:** Biases local vector search towards relevant images, figure plates, and table chunks.
 3. **Generates Grounded Answers with Inline Embeddings:** Synthesizes clear, hallucination-free explanations accompanied directly by embedded figures and rendered tables, citing precise source documents and page numbers.
 
 ---
@@ -28,7 +28,7 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 | :--- | :--- | :--- | :--- |
 | **P1** | **Document Parsing & OCR Lead** | Ingesting 415 corpus files (PDF/DOCX/MD/TXT), running OCR (Tesseract) on degraded simulated scans. | Section hierarchy & text chunking. |
 | **P2** | **Visual & Table Extraction Lead** | Extracting figure plates, diagrams, maps, cropping images, converting complex codex tables to Markdown. | Generating image captions & media metadata. |
-| **P3** | **Retrieval & Reranking Lead** | Voyage AI embeddings (`voyage-4`), ChromaDB indexing, query intent classifier, and Voyage `rerank-2.5` reranking. | Modality score boosting ($\mathbf{W}_{\text{modality}}$). |
+| **P3** | **Retrieval & Ranking Lead** | Local BGE vector embeddings (`BAAI/bge-small-en-v1.5`), ChromaDB indexing, query intent classifier. | Modality score boosting ($\mathbf{W}_{\text{modality}}$) and latency optimization. |
 | **P4** | **Generation, Evaluation & Delivery Lead** | OpenRouter LLM grounding, automated benchmark evaluation on `sample_questions.json`, metric tracking. | Streamlit UI integration, 5-page report & 10-min demo video. |
 
 *Every team member actively reviews and understands the complete pipeline.*
@@ -45,10 +45,10 @@ graph TD
     B2 --> C
     B2 --> D[Extracted Media Assets<br/>data/extracted_media/]
     
-    C --> E[P3: Voyage-4 Embedding & ChromaDB]
+    C --> E[P3: Local BGE Embedding & ChromaDB]
     
     F[User Query] --> G[P4: Streamlit UI]
-    G --> H[P3: Modality-Aware Retrieval + Voyage Reranker]
+    G --> H[P3: Modality-Aware Retrieval & Score Boosting]
     E -.-> H
     
     H --> I[Top-K Multimodal Context Chunks]
@@ -76,12 +76,12 @@ DeepThink/
 │   └── config.example.json             # Example pipeline settings
 ├── docs/
 │   ├── architecture.md                 # Full system architecture specification
-│   ├── decisions.md                    # Architecture decision log (ADR)
+│   ├── decisions.md                    # Architecture decision log (ADRs)
 │   ├── limitations.md                  # Known limitations & failed approaches log
 │   ├── metrics.md                      # Evaluation benchmarks (20 sample questions)
 │   ├── diagrams/                       # Visual architecture and flow diagrams
 │   └── workflows/                      # Detailed per-member execution workflows
-│       ├── TEAM_WORKFLOW.md            # Streamlined milestone execution schedule
+│       ├── TEAM_WORKFLOW.md            # Execution roadmap
 │       ├── P1_DOCUMENT_PARSING_OCR.md  # Member 1 workflow
 │       ├── P2_VISUAL_TABLE_EXTRACTION.md # Member 2 workflow
 │       ├── P3_RETRIEVAL_RANKING.md     # Member 3 workflow
@@ -118,7 +118,7 @@ pip install -r requirements.txt
 
 # 4. Configure environment variables
 cp configuration-example/.env.example .env
-# Open .env and add your VOYAGE_API_KEY and OPENROUTER_API_KEY
+# Open .env and add your OPENROUTER_API_KEY (free at openrouter.ai/keys)
 ```
 
 ### 5.3 Running the Pipeline
@@ -126,7 +126,7 @@ cp configuration-example/.env.example .env
 # Step 1: Parse, OCR, and extract figures/tables
 python -m src.ingestion.pipeline
 
-# Step 2: Index chunks into the vector store
+# Step 2: Index chunks into local ChromaDB
 python -m src.retrieval.indexer
 
 # Step 3: Run benchmark evaluation

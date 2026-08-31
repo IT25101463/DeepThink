@@ -2,7 +2,8 @@
 
 > **SLIIT Codefest 2026 AI Competition**  
 > **Sub-track 1A:** *Rich Answers, Not Just Text*  
-> **Target Corpus:** *The Ashen Era Archive* (415 docs, ~1,277 pages)
+> **Target Corpus:** *The Ashen Era Archive* (415 docs, ~1,277 pages)  
+> **100% Free & Local-First Architecture**
 
 ---
 
@@ -26,14 +27,13 @@ flowchart TD
         ExtTab --> MediaStore
     end
 
-    subgraph Retrieval Layer [P3: Indexing & Modality-Aware Retrieval]
-        ChunksContract --> VoyageEmbed[Voyage AI voyage-4 Embedding]
-        VoyageEmbed --> ChromaIndex[(ChromaDB Vector Store)]
+    subgraph Retrieval Layer [P3: Local Vector Indexing & Modality-Aware Retrieval]
+        ChunksContract --> LocalEmbed[Local BAAI/bge-small-en-v1.5 Embedding]
+        LocalEmbed --> ChromaIndex[(ChromaDB Vector Store)]
         UserQuery[User Question] --> IntentClassifier[Query Intent Classifier]
         IntentClassifier --> HybridSearch[Modality-Aware Hybrid Retriever]
         ChromaIndex --> HybridSearch
-        HybridSearch --> VoyageReranker[Voyage rerank-2.5 Reranker]
-        VoyageReranker --> RankedChunks[Top-K Modality-Weighted Chunks]
+        HybridSearch --> RankedChunks[Top-K Modality-Weighted Chunks]
     end
 
     subgraph Generation & Evaluation Layer [P4: Synthesis & Grounding]
@@ -98,7 +98,7 @@ A naive RAG pipeline retrieves paragraphs describing the Sky-Fortress, completel
 2. **Dynamic Modality Weighting:**
    $$\text{FinalScore}(c) = \text{CosineSimilarity}(q, c) \times \mathbf{W}_{\text{modality}}(q, c)$$
    Where $\mathbf{W}$ boosts image and table chunks when visual intent is detected.
-3. **Voyage Reranker:** High-precision cross-encoder reranking via Voyage `rerank-2.5`.
+3. **Local Vector Search:** Fast, zero-rate-limit local embedding computation using `BAAI/bge-small-en-v1.5`.
 4. **Parent Document Context Injection:** When a figure chunk is retrieved, the immediate surrounding text chunk (caption/explanation) is bundled with it.
 
 ---
@@ -118,7 +118,7 @@ The LLM is prompted with strict grounding rules:
 ## 5. Directory Mapping & Modules
 
 - `src/ingestion/`: P1 (Text/OCR) and P2 (Visual/Table) modules for PDF/DOCX parsing, OCR, and figure extraction.
-- `src/retrieval/`: P3 modules for Voyage AI embeddings, ChromaDB, intent routing, and reranking.
+- `src/retrieval/`: P3 modules for Local BGE embeddings, ChromaDB, and intent routing.
 - `src/generation/`: P4 modules for OpenRouter LLM calling, prompt formatting, and retry logic.
 - `src/evaluation/`: P4 modules for automated metric evaluation against the 20 sample questions.
 - `src/ui/`: P4 modules for Streamlit chat interface and media rendering.
