@@ -5,12 +5,18 @@ Evaluates DeepThink against the 20 sample_questions.json and logs results in doc
 
 import os
 import re
+import sys
 import json
 import time
 import argparse
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
+
+# Add project root to sys.path
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from src.config import DATA_DIR, PROJECT_ROOT, CHUNKS_JSON_PATH
 from src.retrieval.retriever import retrieve
