@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 VALID_MODALITIES = {"text", "table", "image-caption"}
-VALID_DOC_TYPES = {"pdf", "docx", "md", "txt", "scan"}
+VALID_DOC_TYPES = {"pdf", "docx", "md", "txt", "scan", "png", "jpg", "image"}
 
 
 def validate_chunk(chunk: Dict[str, Any], project_root: Path) -> List[str]:
@@ -38,7 +38,7 @@ def validate_chunk(chunk: Dict[str, Any], project_root: Path) -> List[str]:
     # Media path validation for visual/table chunks
     media_path = chunk.get("media_path")
     if modality in {"image-caption", "table"} and media_path:
-        full_path = project_root / media_path
+        full_path = Path(media_path) if os.path.isabs(media_path) else (project_root / media_path)
         if not full_path.exists():
             errors.append(f"Media file does not exist on disk: '{media_path}' (Resolved: {full_path})")
             
@@ -100,9 +100,9 @@ if __name__ == "__main__":
         
     valid, errs = validate_chunks_file(target)
     if valid:
-        print(f"✅ SUCCESS: '{target}' passed all schema contract validation checks.")
+        print(f"[SUCCESS] '{target}' passed all schema contract validation checks.")
     else:
-        print(f"❌ FAILED: '{target}' has {len(errs)} schema error(s):")
+        print(f"[FAILED] '{target}' has {len(errs)} schema error(s):")
         for e in errs[:10]:
             print(f"  - {e}")
         if len(errs) > 10:
