@@ -63,7 +63,17 @@ This document records the key architectural and design decisions made throughout
 - **Decision:** Rebalance the 4 roles:
   1. **P1:** Document Parsing & OCR Lead (Text, layout, degraded scan OCR).
   2. **P2:** Visual & Table Extraction Lead (Figure plates, maps, Markdown tables, media assets).
-  3. **P3:** Retrieval & Reranking Lead (Voyage-4 embeddings, ChromaDB, intent routing, Voyage rerank-2.5).
+  3. **P3:** Retrieval & Reranking Lead (Voyage-4 embeddings, ChromaDB, intent routing, Voyage reranker).
   4. **P4:** Generation, Evaluation & Delivery Lead (Grounded LLM, automated benchmark evaluation, lightweight Streamlit UI, demo video & report).
 - **Rationale:** Distributes the difficult multimodal extraction workload evenly, introduces a dedicated owner for rigorous evaluation and hallucination elimination, and treats UI as a lightweight presentation layer.
 - **Trade-offs / Consequences:** Streamlit interface is implemented with minimal boilerplate, freeing up P4 to focus on quantitative benchmark accuracy and report writing.
+
+---
+
+## ADR-007: Accelerated Direct Multimodal Pipeline Implementation
+- **Date:** 2026-08-31
+- **Status:** Accepted
+- **Context:** Building an artificial text-only system before multimodal extraction delays the core Sub-track 1A deliverable. The team can achieve higher quality by directly implementing the full multimodal ingestion, Voyage-4 modality-aware retrieval, and grounded figure generation from Day 1.
+- **Decision:** Consolidate development into a direct 3-phase execution roadmap: (1) Core Multimodal Engine Build, (2) Hardening, Rate-Limit Defense & Benchmark Evaluation, and (3) Video Production & Submission Packaging.
+- **Rationale:** Delivers a fully working end-to-end prototype early, maximizing the remaining time available for rigorous adversarial testing, benchmark optimization, and video polish.
+- **Trade-offs / Consequences:** Requires tight coordination across the `chunks.json` contract from the very start.
