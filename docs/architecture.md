@@ -39,8 +39,8 @@ flowchart TD
     subgraph Generation & Evaluation Layer [P4: Synthesis & Grounding]
         RankedChunks --> PromptBuilder[Context & Citation Assembler]
         UserQuery --> PromptBuilder
-        PromptBuilder --> OpenRouterLLM[OpenRouter LLM Engine<br/>Llama-3.3 / DeepSeek]
-        OpenRouterLLM --> HallucinationGuard[Grounding & Citation Validator]
+        PromptBuilder --> GroqLLM[Groq LPU LLM Engine<br/>Llama-3.3 70B @ 300 t/s]
+        GroqLLM --> HallucinationGuard[Grounding & Citation Validator]
         HallucinationGuard --> FormattedOutput[Markdown Answer + Inline Media Links]
         FormattedOutput --> Evaluator[Automated Evaluation Suite<br/>src/evaluation/]
     end

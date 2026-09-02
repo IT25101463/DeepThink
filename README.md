@@ -29,7 +29,7 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 | **P1** | **Document Parsing & OCR Lead** | Ingesting 415 corpus files (PDF/DOCX/MD/TXT), running OCR (Tesseract) on degraded simulated scans. | Section hierarchy & text chunking. |
 | **P2** | **Visual & Table Extraction Lead** | Extracting figure plates, diagrams, maps, cropping images, converting complex codex tables to Markdown. | Generating image captions & media metadata. |
 | **P3** | **Retrieval & Ranking Lead** | Local BGE vector embeddings (`BAAI/bge-small-en-v1.5`), ChromaDB indexing, query intent classifier. | Modality score boosting ($\mathbf{W}_{\text{modality}}$) and latency optimization. |
-| **P4** | **Generation, Evaluation & Delivery Lead** | OpenRouter LLM grounding, automated benchmark evaluation on `sample_questions.json`, metric tracking. | Streamlit UI integration, 5-page report & 10-min demo video. |
+| **P4** | **Generation, Evaluation & Delivery Lead** | Groq LLM grounding (`llama-3.3-70b-versatile` @ 300 t/s), automated benchmark evaluation on `sample_questions.json`, metric tracking. | Streamlit UI integration, 5-page report & 10-min demo video. |
 
 *Every team member actively reviews and understands the complete pipeline.*
 
@@ -52,7 +52,7 @@ graph TD
     E -.-> H
     
     H --> I[Top-K Multimodal Context Chunks]
-    I --> J[P4: OpenRouter LLM Grounded Generator]
+    I --> J[P4: Groq LPU Grounded Generator 300 t/s]
     
     J --> K[Grounded Answer with Inline Figures & Citations]
     K --> G
@@ -118,7 +118,7 @@ pip install -r requirements.txt
 
 # 4. Configure environment variables
 cp configuration-example/.env.example .env
-# Open .env and add your OPENROUTER_API_KEY (free at openrouter.ai/keys)
+# Open .env and add your GROQ_API_KEY (free in 20s at console.groq.com/keys)
 ```
 
 ### 5.3 Running the Pipeline

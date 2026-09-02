@@ -18,7 +18,7 @@ from src.config import (
     PROJECT_ROOT,
     CHUNKS_JSON_PATH
 )
-from src.retrieval.router import analyze_query_intent
+from src.retrieval.router import analyze_query_intent, check_query_domain_scope
 
 logger = logging.getLogger("deepthink.retriever")
 
@@ -93,6 +93,10 @@ def _retrieve_in_memory_fallback(
     scored = []
     for c in _IN_MEMORY_CHUNKS:
         doc_name = str(c.get("document_name", "")).lower()
+        # Skip dataset root instructions/meta files
+        if doc_name.startswith("readme"):
+            continue
+
         caption = str(c.get("caption", "") or "").lower()
         section = str(c.get("section_title", "") or "").lower()
         content = str(c.get("content", "")).lower()
@@ -164,7 +168,13 @@ def retrieve(
     if not query or not query.strip():
         return []
 
-    # 1. Analyze Intent
+    # 1. Pre-Retrieval Domain Scope Check (Zero DB Calls for Off-Scope Queries)
+    is_handled, _, _ = check_query_domain_scope(query)
+    if is_handled:
+        logger.info(f"Query '{query[:40]}' is greeting or off-domain. Skipping vector DB search.")
+        return []
+
+    # 2. Analyze Intent
     intent_data = analyze_query_intent(query)
     target_modality = modality_override or intent_data["target_modality"]
     boost_weight = intent_data["boost_weight"] if not modality_override else MODALITY_BOOST_FACTOR
@@ -190,6 +200,10 @@ def retrieve(
 
                     scored_chunks = []
                     for c_id, content, meta, dist in zip(ids, docs, metas, distances):
+                        doc_name = str(meta.get("document_name", "")).lower()
+                        if doc_name.startswith("readme"):
+                            continue
+
                         raw_sim = max(0.0, 1.0 - float(dist))
                         modality = str(meta.get("modality", "text"))
                         
