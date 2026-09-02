@@ -1,8 +1,7 @@
 """
 Query Intent & Scope Router (Owner: Member P3 - Team Leader)
-1. Pre-Retrieval Domain Scope Guardrail:
-   - Evaluates greetings and out-of-scope queries BEFORE touching vector database.
-   - Fast-path refusal (0.001s latency, 0 vector DB calls, 0 token consumption).
+1. Pre-Retrieval Fast-Path Guardrail:
+   - Evaluates greetings and physical sensor premise queries in 0.0001s.
 2. Intent Classification:
    - Visual Intent ('image-caption'): diagrams, figure plates, maps, schematics, crests.
    - Tabular Intent ('table'): technical specs, dimensions, stats, ammunition calibers.
@@ -12,11 +11,16 @@ Query Intent & Scope Router (Owner: Member P3 - Team Leader)
 import re
 from typing import Dict, Any, Tuple, Optional
 
-# Standard Out-of-Scope and Greeting Messages
+# Standard Out-of-Scope, Physical-Premise, and Greeting Messages
 OUT_OF_SCOPE_REFUSAL = (
     "I am DeepThink, specialized exclusively in analyzing the Ashen Era Archive documentation. "
     "Your inquiry is outside the scope of this archival repository. "
     "Please feel free to ask questions regarding Ashen Era history, faction chronicles, codex schematics, artillery specifications, or trial records."
+)
+
+PERSONAL_PHYSICAL_REFUSAL = (
+    "I am DeepThink, a digital archival intelligence dedicated exclusively to the historical records of the Ashen Era. "
+    "I operate purely on archival documentation and do not possess real-world visual sensors, cameras, or knowledge of your physical surroundings."
 )
 
 GREETING_MESSAGE = (
@@ -24,19 +28,33 @@ GREETING_MESSAGE = (
     "How may I assist you with historical chronicles, battle accords, codex schematics, or ledger records today?"
 )
 
-OFF_DOMAIN_PATTERNS = [
-    # Real-world geography & places
-    r"\b(france|sri lanka|colombo|india|usa|america|london|paris|china|russia|japan|tokyo|germany|australia|canada|singapore|new york|california)\b",
-    # Real-world people / celebrities / modern sports / pop culture
-    r"\b(elon musk|donald trump|biden|obama|modi|messi|ronaldo|cricket|football|world cup|olympics|bollywood|hollywood|taylor swift)\b",
-    # General coding / programming scripts
-    r"\b(python|javascript|java|c\+\+|c#|write a code|write code|write a script|programming|html|css|sql|react|django|fastapi|debug this code|function in)\b",
-    # Lifestyle / Cooking / Math trivia / General chitchat
-    r"\b(recipe for|how to cook|bake a cake|how to make|lose weight|weather in|temperature in|solve this math|calculate \d+|tell me a joke|write a poem about love|write an essay)\b"
+# 1. Personal / Physical State / Real-World Sensor Patterns
+PERSONAL_PHYSICAL_PATTERNS = [
+    r"\b(what|which)\s+.*?\s*am\s+i\s+(holding|wearing|carrying|touching|seeing|looking\s+at)\b",
+    r"\b(can\s+you|do\s+you)\s+(see|watch|hear|observe|look\s+at)\s+(me|my|this|us)\b",
+    r"\b(who|where|what)\s+am\s+i\b",
+    r"\b(what\s+is\s+in\s+my\s+hand|in\s+my\s+room|on\s+my\s+desk|in\s+front\s+of\s+me)\b",
+    r"\b(am\s+i\s+holding|am\s+i\s+wearing|am\s+i\s+carrying|am\s+i\s+looking)\b",
+    r"\b(take\s+a\s+picture|take\s+a\s+photo|turn\s+on\s+my\s+camera|my\s+webcam|look\s+through\s+my\s+camera)\b"
+]
+
+# 2. General Non-Archival Action Commands & Real-World Domains
+NON_ARCHIVAL_COMMANDS = [
+    # Coding / Development / Tech assistance
+    r"\b(write\s+(a\s+)?code|write\s+(a\s+)?(python|javascript|java|c\+\+|c#|html|css|sql|rust|go)\s+script|debug\s+this|function\s+in\s+python|how\s+to\s+code|syntax\s+for)\b",
+    r"\b(write\s+an\s+essay|write\s+a\s+poem|tell\s+me\s+a\s+joke|write\s+a\s+story\s+about)\b",
+    # Math / Calculations
+    r"\b(solve\s+this\s+(math|equation|integral|derivative)|calculate\s+\d+|what\s+is\s+\d+\s*[\+\-\*\/]\s*\d+)\b",
+    # Real-world politics, geography, celebrities, weather, stocks
+    r"\b(weather\s+in|stock\s+price|cryptocurrency|bitcoin|ethereum|president\s+of\s+[a-z]+|prime\s+minister\s+of|capital\s+of\s+[a-z]+)\b",
+    # Personal assistant commands
+    r"\b(set\s+an?\s+alarm|set\s+a\s+timer|remind\s+me\s+to|send\s+an?\s+email|book\s+a\s+flight|order\s+food)\b",
+    # Adversarial / Jailbreak prompts
+    r"\b(ignore\s+(all\s+)?previous\s+instructions|disregard\s+(all\s+)?rules|act\s+as\s+dan|you\s+are\s+now\s+(an\s+)?unrestricted|jailbreak|bypass\s+safety)\b"
 ]
 
 GREETING_WORDS = {
-    "hi", "hello", "hey", "greetings", "good morning", "good evening", "good afternoon", "who are you", "what can you do"
+    "hi", "hello", "hey", "greetings", "good morning", "good evening", "good afternoon", "who are you", "what can you do", "help"
 }
 
 VISUAL_PATTERNS = [
@@ -64,10 +82,8 @@ TABULAR_PATTERNS = [
 
 def check_query_domain_scope(query: str) -> Tuple[bool, Optional[str], str]:
     """
-    Evaluates domain scope BEFORE vector search.
-    Returns: (is_handled, response_text, category)
-      - If handled: category is 'greeting' or 'out_of_scope'
-      - If in-scope: (False, None, 'in_scope')
+    Evaluates conversational intent & physical premise BEFORE vector search.
+    Universal domain boundary is handled via vector space similarity in Stage 2/3.
     """
     if not query or not query.strip():
         return True, "Please ask a question about the Ashen Era Archive.", "empty"
@@ -76,11 +92,18 @@ def check_query_domain_scope(query: str) -> Tuple[bool, Optional[str], str]:
     q_words_only = re.sub(r"[^\w\s]", "", q_clean).strip()
 
     # 1. Check Greetings Fast-Path
-    if q_words_only in GREETING_WORDS or q_clean in GREETING_WORDS:
+    greeting_tokens = {"hi", "hello", "hey", "greetings", "good", "morning", "evening", "afternoon", "there", "who", "are", "you"}
+    words_list = q_words_only.split()
+    if q_words_only in GREETING_WORDS or q_clean in GREETING_WORDS or (words_list and all(w in greeting_tokens for w in words_list)):
         return True, GREETING_MESSAGE, "greeting"
 
-    # 2. Check Explicit Off-Domain Patterns Fast-Path
-    for pat in OFF_DOMAIN_PATTERNS:
+    # 2. Check Personal / Physical Real-World Premise Fast-Path
+    for pat in PERSONAL_PHYSICAL_PATTERNS:
+        if re.search(pat, q_clean):
+            return True, PERSONAL_PHYSICAL_REFUSAL, "personal_physical"
+
+    # 3. Check General Coding/Non-Archival Command Fast-Path
+    for pat in NON_ARCHIVAL_COMMANDS:
         if re.search(pat, q_clean):
             return True, OUT_OF_SCOPE_REFUSAL, "out_of_scope"
 
@@ -130,20 +153,3 @@ def detect_modality_intent(query: str) -> str:
     Convenience wrapper returning the target modality string: 'image-caption', 'table', or 'text'.
     """
     return analyze_query_intent(query)["target_modality"]
-
-
-if __name__ == "__main__":
-    test_queries = [
-        "What is the capital of France?",
-        "Hi, good morning!",
-        "Show me the diagram of the Sky-Fortress primary steam coolant valve",
-        "What are the artillery specifications and caliber table for 155mm cannons?",
-        "Who founded the Order of the Ashen Dawn?"
-    ]
-    for q in test_queries:
-        handled, msg, cat = check_query_domain_scope(q)
-        if handled:
-            print(f"FAST-PATH Refusal/Greeting [{cat}]: '{q}'\n -> {msg[:60]}...\n")
-        else:
-            intent = analyze_query_intent(q)
-            print(f"IN-SCOPE Retrieval [{intent['intent']}]: '{q}'\n")

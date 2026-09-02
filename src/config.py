@@ -14,6 +14,9 @@ try:
 except Exception:
     pass
 
+# Ensure offline huggingface loading if models are cached or network unavailable
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
