@@ -1,6 +1,7 @@
 """
 Streamlit Web Application (Owner: Member P4 - Generation, Evaluation & Delivery Lead)
 Interactive document assistant for the Ashen Era Archive with inline figure & table rendering.
+Powered by Groq Cloud (300+ tokens/sec LPU Inference).
 """
 
 import os
@@ -27,10 +28,10 @@ from src.config import (
     DEFAULT_TOP_K,
     MODALITY_BOOST_FACTOR,
     LLM_MODEL_NAME,
-    OPENROUTER_API_KEY
+    GROQ_API_KEY
 )
 from src.retrieval.retriever import retrieve
-from src.retrieval.router import analyze_query_intent
+from src.retrieval.router import analyze_query_intent, check_query_domain_scope
 from src.generation.generator import generate_answer, resolve_media_path
 
 
@@ -163,6 +164,14 @@ def main():
             font-weight: 600;
             display: inline-block;
         }
+        .badge-groq {
+            background-color: #FEE2E2;
+            color: #991B1B;
+            padding: 3px 8px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
         .modality-badge-image {
             background-color: #DBEAFE;
             color: #1E40AF;
@@ -200,7 +209,7 @@ def main():
     # --- SIDEBAR CONTROLS ---
     with st.sidebar:
         st.markdown("### 📖 **DeepThink Controls**")
-        st.markdown("<span class='badge-1a'>Sub-track 1A: Rich Answers</span>", unsafe_allow_html=True)
+        st.markdown("<span class='badge-1a'>Sub-track 1A: Rich Answers</span> &bull; <span class='badge-groq'>Groq 300 t/s LPU</span>", unsafe_allow_html=True)
         st.markdown("---")
 
         # Benchmark Preset Selector
@@ -222,13 +231,13 @@ def main():
         top_k = st.slider("Top-K Chunks to Retrieve", min_value=1, max_value=10, value=DEFAULT_TOP_K)
         boost_factor = st.slider("Modality Boost Factor (W_modality)", min_value=1.0, max_value=3.0, value=MODALITY_BOOST_FACTOR, step=0.1)
         
-        model_choice = st.selectbox(
-            "LLM Model (OpenRouter Free Tier):",
-            [LLM_MODEL_NAME, "deepseek/deepseek-chat", "meta-llama/llama-3-8b-instruct:free", "google/gemini-2.0-flash-lite-preview-02-05:free"],
-            index=0
-        )
+        st.markdown(f"**LLM Engine:** `openai/gpt-oss-120b` *(Groq ⚡ LPU)*")
 
-        api_key_input = st.text_input("OpenRouter API Key (Optional override):", value="", type="password", help="Leave blank to use .env key or local grounded synthesizer.")
+        # Engine Status Indicator (reads automatically from .env in the background)
+        if GROQ_API_KEY and len(GROQ_API_KEY) > 15:
+            st.caption("⚡ **Engine Status:** `🟢 Online (300+ t/s)`")
+        else:
+            st.caption("⚡ **Engine Status:** `🟡 Offline Fallback Active`")
 
         st.markdown("---")
         st.markdown("#### 📊 Corpus Telemetry")
@@ -282,7 +291,7 @@ def main():
                         st.text(c.get("content", "")[:300] + ("..." if len(c.get("content", "")) > 300 else ""))
                         st.markdown("---")
 
-    # Handle User Query Input (From Chat Input or Preset Loader)
+    # Handle User Query Input
     user_prompt = None
     if selected_sample:
         user_prompt = selected_sample
@@ -299,32 +308,38 @@ def main():
         with st.chat_message("assistant"):
             start_time = time.time()
             
-            # Analyze Intent
-            intent_info = analyze_query_intent(user_prompt)
-            intent_label = intent_info.get("intent", "narrative_text")
-            target_mod = intent_info.get("target_modality", "text")
+            # Fast-Path Check: Refuse off-domain or handle greetings WITHOUT touching Vector DB
+            is_handled, refusal_msg, scope_category = check_query_domain_scope(user_prompt)
             
-            with st.spinner(f"Classifying intent [{intent_label.upper()}] & searching multimodal vector store..."):
-                retrieved_chunks = retrieve(
-                    query=user_prompt, 
-                    top_k=top_k
-                )
+            if is_handled:
+                # Fast Path: Zero Vector DB Search & Zero Token Usage!
+                response_text = refusal_msg
+                retrieved_chunks = []
+                elapsed_time = round(time.time() - start_time, 3)
+                
+                render_message_content(response_text)
+                st.caption(f"⚡ Guardrail Fast-Path: **{elapsed_time}s** &bull; Vector DB: `Skipped ({scope_category.upper()})` &bull; Tokens: `0`")
+            else:
+                # In-Scope Query: Execute Vector Retrieval & Groq LPU Generation
+                intent_info = analyze_query_intent(user_prompt)
+                intent_label = intent_info.get("intent", "narrative_text")
+                target_mod = intent_info.get("target_modality", "text")
+                
+                with st.spinner(f"Classifying intent [{intent_label.upper()}] & searching multimodal vector store..."):
+                    retrieved_chunks = retrieve(
+                        query=user_prompt, 
+                        top_k=top_k
+                    )
 
-            with st.spinner("Synthesizing grounded response with citations and inline media..."):
-                active_key = api_key_input.strip() if api_key_input.strip() else None
-                response_text = generate_answer(
-                    query=user_prompt, 
-                    context_chunks=retrieved_chunks,
-                    model=model_choice,
-                    api_key=active_key
-                )
+                with st.spinner("Synthesizing grounded response with Groq LPU (300+ t/s)..."):
+                    response_text = generate_answer(
+                        query=user_prompt, 
+                        context_chunks=retrieved_chunks
+                    )
 
-            elapsed_time = round(time.time() - start_time, 2)
-
-            # 3. Render Assistant Response with Native Streamlit Image Handling
-            render_message_content(response_text)
-
-            st.caption(f"⏱️ Retrieval & Synthesis Latency: **{elapsed_time}s** &bull; Intent Detected: `{intent_label}` &bull; Target Modality: `{target_mod}`")
+                elapsed_time = round(time.time() - start_time, 2)
+                render_message_content(response_text)
+                st.caption(f"⚡ Groq LPU Latency: **{elapsed_time}s** &bull; Intent Detected: `{intent_label}` &bull; Target Modality: `{target_mod}`")
 
             # 4. Render Expandable Context Inspector
             if retrieved_chunks:

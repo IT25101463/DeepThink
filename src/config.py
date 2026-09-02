@@ -24,11 +24,11 @@ try:
 except ImportError:
     pass
 
-# API Keys (OpenRouter is 100% free with zero credit card needed)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+# API Keys (Groq is 100% free with ultra-fast 300 t/s LPU inference & zero credit card needed)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-# Model Names
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "meta-llama/llama-3.3-70b-instruct:free")
+# Model Names (Defaults to Groq Flagship GPT-OSS 120B / 20B)
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "openai/gpt-oss-120b")
 # 100% free local HuggingFace embedding (Zero card / Zero API key needed)
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5")
 

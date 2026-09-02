@@ -80,8 +80,8 @@ def run_verification():
 
     print_status("  - Local BGE Embeddings (P3)", True, "100% Free / Zero Card / Zero API Key")
     if env_exists:
-        from src.config import OPENROUTER_API_KEY
-        print_status("  - OpenRouter API Key (P4)", bool(OPENROUTER_API_KEY), "Configured" if OPENROUTER_API_KEY else "Empty (free signup at openrouter.ai/keys)")
+        from src.config import GROQ_API_KEY
+        print_status("  - Groq API Key (P4)", bool(GROQ_API_KEY), "Configured" if GROQ_API_KEY else "Empty (free signup at console.groq.com/keys)")
 
     # 6. Workflow Docs Check
     workflows = [

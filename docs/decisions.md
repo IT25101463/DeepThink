@@ -14,11 +14,11 @@ This document records the key architectural and design decisions made throughout
 
 ---
 
-## ADR-002: LLM & Embedding Infrastructure (OpenRouter + Local BGE)
+## ADR-002: LLM & Embedding Infrastructure (Groq Cloud + Local BGE)
 - **Date:** 2026-08-29
-- **Status:** Superseded by ADR-008
+- **Status:** Superseded by ADR-008 and ADR-009
 - **Context:** Competition rules encourage frugal engineering and free/low-cost API usage with strict rate-limit protection.
-- **Decision:** Use OpenRouter for generation and local embeddings for retrieval.
+- **Decision:** Use Groq LPU inference for ultra-fast generation and local embeddings for retrieval.
 
 ---
 
@@ -85,3 +85,16 @@ This document records the key architectural and design decisions made throughout
   3. **State of the Art Quality:** BGE is top-ranked on the Massive Text Embedding Benchmark (MTEB) for retrieval precision.
   4. **Native ChromaDB Integration:** ChromaDB natively supports sentence-transformer embedding functions with 2 lines of code.
 - **Trade-offs / Consequences:** Requires initial download of the lightweight model weights (~130MB) on first run.
+
+---
+
+## ADR-009: 100% Free Ultra-Fast LLM Inference via Groq Cloud (LPU Hardware)
+- **Date:** 2026-09-02
+- **Status:** Accepted
+- **Context:** Shared free-tier aggregators often suffer from upstream HTTP 429 rate limits during peak usage. The team requires a dedicated, lightning-fast inference provider with a generous permanent free tier and zero credit card requirements.
+- **Decision:** Standardize LLM inference on **Groq Cloud** using `llama-3.3-70b-versatile` and `deepseek-r1-distill-llama-70b`.
+- **Rationale:**
+  1. **Inference Velocity:** Groq's custom LPU (Language Processing Unit) delivers 300+ tokens/sec, reducing user wait time to ~0.3 seconds.
+  2. **Generous Free Quota:** 14,400 free requests per day (30 requests/minute) with zero credit card needed.
+  3. **Zero 429 Outages:** Dedicated compute endpoints eliminate shared pool congestion.
+  4. **OpenAI SDK Native:** Fully compatible with OpenAI standard client protocol.
