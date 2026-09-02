@@ -49,9 +49,10 @@ class TestGenerator(unittest.TestCase):
         self.assertIn("Marrowwatch Garrison Strength", prompt)
 
     def test_system_prompt_rules(self):
-        self.assertIn("STRICT GROUNDING", GROUNDED_SYSTEM_PROMPT)
-        self.assertIn("PRECISE CITATIONS", GROUNDED_SYSTEM_PROMPT)
-        self.assertIn("INLINE FIGURE & TABLE EMBEDDING", GROUNDED_SYSTEM_PROMPT)
+        self.assertIn("SCHOLARLY RIGOR", GROUNDED_SYSTEM_PROMPT)
+        self.assertIn("PRECISE IN-TEXT CITATIONS", GROUNDED_SYSTEM_PROMPT)
+        self.assertIn("MULTIMODAL INLINE FIGURE & TABLE EMBEDDINGS", GROUNDED_SYSTEM_PROMPT)
+        self.assertIn("STRICT OUT-OF-SCOPE REFUSAL", GROUNDED_SYSTEM_PROMPT)
 
     def test_resolve_media_path(self):
         # Existing figure in extracted media

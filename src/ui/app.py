@@ -30,7 +30,7 @@ from src.config import (
     LLM_MODEL_NAME,
     GROQ_API_KEY
 )
-from src.retrieval.retriever import retrieve
+from src.retrieval.retriever import retrieve, evaluate_retrieval_confidence
 from src.retrieval.router import analyze_query_intent, check_query_domain_scope
 from src.generation.generator import generate_answer, resolve_media_path
 
@@ -227,15 +227,17 @@ def main():
                 selected_sample = sample_questions[selected_idx]["question"]
 
         st.markdown("---")
-        st.markdown("#### ⚙️ Retrieval & LLM Settings")
-        top_k = st.slider("Top-K Chunks to Retrieve", min_value=1, max_value=10, value=DEFAULT_TOP_K)
-        boost_factor = st.slider("Modality Boost Factor (W_modality)", min_value=1.0, max_value=3.0, value=MODALITY_BOOST_FACTOR, step=0.1)
-        
-        st.markdown(f"**LLM Engine:** `openai/gpt-oss-120b` *(Groq ⚡ LPU)*")
+        st.markdown("#### 🤖 Autonomous RAG 3.0 Engine")
+        st.markdown("""
+        - **Context Sizing:** `⚡ Adaptive (Auto K = 1..8)`
+        - **Noise Pruning:** `🎯 Elbow-Method Drop-Off (α = 0.60)`
+        - **Verification:** `🛡️ Pre-Gen Entity & Field Gate`
+        - **LLM Engine:** `openai/gpt-oss-120b` *(Groq ⚡ LPU)*
+        """)
 
         # Engine Status Indicator (reads automatically from .env in the background)
         if GROQ_API_KEY and len(GROQ_API_KEY) > 15:
-            st.caption("⚡ **Engine Status:** `🟢 Online (300+ t/s)`")
+            st.caption("⚡ **Engine Status:** `🟢 Online (300+ t/s LPU)`")
         else:
             st.caption("⚡ **Engine Status:** `🟡 Offline Fallback Active`")
 
@@ -325,10 +327,9 @@ def main():
                 intent_label = intent_info.get("intent", "narrative_text")
                 target_mod = intent_info.get("target_modality", "text")
                 
-                with st.spinner(f"Classifying intent [{intent_label.upper()}] & searching multimodal vector store..."):
+                with st.spinner(f"Classifying intent [{intent_label.upper()}] & computing adaptive context..."):
                     retrieved_chunks = retrieve(
-                        query=user_prompt, 
-                        top_k=top_k
+                        query=user_prompt
                     )
 
                 with st.spinner("Synthesizing grounded response with Groq LPU (300+ t/s)..."):
@@ -337,9 +338,17 @@ def main():
                         context_chunks=retrieved_chunks
                     )
 
+                crag_eval = evaluate_retrieval_confidence(user_prompt, retrieved_chunks)
+                crag_verdict = crag_eval["verdict"]
+                top_sim = crag_eval["top_similarity"]
+
                 elapsed_time = round(time.time() - start_time, 2)
                 render_message_content(response_text)
-                st.caption(f"⚡ Groq LPU Latency: **{elapsed_time}s** &bull; Intent Detected: `{intent_label}` &bull; Target Modality: `{target_mod}`")
+                
+                if crag_verdict == "OUT_OF_DOMAIN":
+                    st.caption(f"🛡️ **Universal Scope Gate:** **{elapsed_time}s** &bull; Domain Sim: `{top_sim}` (OOD) &bull; Status: `Universal Refusal`")
+                else:
+                    st.caption(f"⚡ **Groq LPU Latency:** **{elapsed_time}s** &bull; Chunks: `{len(retrieved_chunks)} (Adaptive)` &bull; Domain Sim: `{top_sim}` &bull; CRAG: `{crag_verdict}` &bull; Modality: `{target_mod}`")
 
             # 4. Render Expandable Context Inspector
             if retrieved_chunks:
