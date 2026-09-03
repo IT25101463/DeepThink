@@ -317,6 +317,7 @@ def main():
                 # Fast Path: Zero Vector DB Search & Zero Token Usage!
                 response_text = refusal_msg
                 retrieved_chunks = []
+                display_chunks = []
                 elapsed_time = round(time.time() - start_time, 3)
                 
                 render_message_content(response_text)
@@ -347,13 +348,15 @@ def main():
                 
                 if crag_verdict == "OUT_OF_DOMAIN":
                     st.caption(f"🛡️ **Universal Scope Gate:** **{elapsed_time}s** &bull; Domain Sim: `{top_sim}` (OOD) &bull; Status: `Universal Refusal`")
+                    display_chunks = []
                 else:
                     st.caption(f"⚡ **Groq LPU Latency:** **{elapsed_time}s** &bull; Chunks: `{len(retrieved_chunks)} (Adaptive)` &bull; Domain Sim: `{top_sim}` &bull; CRAG: `{crag_verdict}` &bull; Modality: `{target_mod}`")
+                    display_chunks = retrieved_chunks
 
             # 4. Render Expandable Context Inspector
-            if retrieved_chunks:
-                with st.expander(f"🔍 Inspect {len(retrieved_chunks)} Retrieved Context Chunks & Modality Breakdown"):
-                    for idx, c in enumerate(retrieved_chunks, 1):
+            if display_chunks:
+                with st.expander(f"🔍 Inspect {len(display_chunks)} Retrieved Context Chunks & Modality Breakdown"):
+                    for idx, c in enumerate(display_chunks, 1):
                         modality = c.get("modality", "text")
                         badge_class = "modality-badge-image" if modality == "image-caption" else ("modality-badge-table" if modality == "table" else "modality-badge-text")
                         
@@ -372,7 +375,7 @@ def main():
         st.session_state.messages.append({
             "role": "assistant",
             "content": response_text,
-            "chunks": retrieved_chunks
+            "chunks": display_chunks
         })
 
 
