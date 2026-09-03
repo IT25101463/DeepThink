@@ -305,14 +305,16 @@ def generate_answer(
     if is_handled and refusal_response:
         return refusal_response
 
+    from src.retrieval.router import UNIVERSAL_OOD_REFUSAL
+
     if not context_chunks:
-        return "I am DeepThink, specialized exclusively in analyzing the Ashen Era Archive documentation. Your inquiry is outside the scope of this archival repository. Please feel free to ask questions regarding Ashen Era history, faction chronicles, codex schematics, artillery specifications, or trial records."
+        return UNIVERSAL_OOD_REFUSAL
 
     # 2. Universal Corrective RAG (CRAG) & OOD Confidence Check
     from src.retrieval.retriever import evaluate_retrieval_confidence
     crag_eval = evaluate_retrieval_confidence(query, context_chunks)
     if crag_eval["verdict"] == "OUT_OF_DOMAIN" or not crag_eval.get("is_in_domain", True):
-        return "I am DeepThink, specialized exclusively in analyzing the Ashen Era Archive documentation. Your inquiry is outside the scope of this archival repository. Please feel free to ask questions regarding Ashen Era history, faction chronicles, codex schematics, artillery specifications, or trial records."
+        return UNIVERSAL_OOD_REFUSAL
 
     # 3. Pre-Generation Context Verification & Distractor Pruning Gate
     from src.retrieval.verifier import verify_and_filter_context
