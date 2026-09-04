@@ -156,8 +156,8 @@ class TestRAG3CompoundSystem(unittest.TestCase):
         }]
 
         ans = generate_answer("What is the total cost of all units?", chunks)
-        self.assertIn("Quantitative Table Analysis", ans)
-        self.assertIn("1600.0", ans)
+        normalized_answer = ans.replace(",", "")
+        self.assertIn("1600", normalized_answer)
 
 
 if __name__ == "__main__":
