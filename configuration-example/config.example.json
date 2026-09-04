@@ -25,10 +25,10 @@
   },
   "generation": {
     "provider": "groq",
-    "primary_model": "llama-3.3-70b-versatile",
-    "fallback_model": "deepseek-r1-distill-llama-70b",
+    "primary_model": "openai/gpt-oss-120b",
+    "fallback_model": "openai/gpt-oss-20b",
     "temperature": 0.1,
-    "max_tokens": 1500,
+    "max_tokens": 1024,
     "max_retries": 3,
     "backoff_factor": 2
   }

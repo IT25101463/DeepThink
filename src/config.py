@@ -14,9 +14,6 @@ try:
 except Exception:
     pass
 
-# Ensure offline huggingface loading if models are cached or network unavailable
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,7 +34,7 @@ EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5
 
 # Data Directories
 DATA_DIR = PROJECT_ROOT / "data"
-CORPUS_DIR = PROJECT_ROOT / os.getenv("ASSET_CORPUS_DIR", "data/ashen_era_archive")
+CORPUS_DIR = PROJECT_ROOT / os.getenv("ASSET_CORPUS_DIR", "data/Ashen_Era_Archive")
 EXTRACTED_MEDIA_DIR = PROJECT_ROOT / os.getenv("EXTRACTED_MEDIA_DIR", "data/extracted_media")
 CHUNKS_JSON_PATH = PROJECT_ROOT / os.getenv("CHUNKS_JSON_PATH", "data/chunks.json")
 CHROMA_PERSIST_DIR = PROJECT_ROOT / os.getenv("CHROMA_PERSIST_DIR", "chroma_db")
