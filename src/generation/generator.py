@@ -6,6 +6,7 @@ handles Corrective RAG (CRAG) confidence grading, and enforces domain guardrails
 
 import os
 import re
+import time
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -357,20 +358,30 @@ def generate_answer(
             )
             
             logger.info(f"Generating answer via {api_base} with model: {target_model}")
-            completion = client.chat.completions.create(
-                model=target_model,
-                messages=[
-                    {"role": "system", "content": GROUNDED_SYSTEM_PROMPT},
-                    {"role": "user", "content": formatted_context}
-                ],
-                temperature=0.1,
-                max_tokens=1024
-            )
-            raw_res = completion.choices[0].message.content
-            if raw_res and len(raw_res.strip()) > 10:
-                return verify_and_fix_media_paths(raw_res, active_chunks)
+            for attempt in range(3):
+                try:
+                    completion = client.chat.completions.create(
+                        model=target_model,
+                        messages=[
+                            {"role": "system", "content": GROUNDED_SYSTEM_PROMPT},
+                            {"role": "user", "content": formatted_context}
+                        ],
+                        temperature=0.1,
+                        max_tokens=1024
+                    )
+                    raw_res = completion.choices[0].message.content
+                    if raw_res and len(raw_res.strip()) > 10:
+                        return verify_and_fix_media_paths(raw_res, active_chunks)
+                    raise RuntimeError("LLM returned an empty or very short response")
+                except Exception as e:
+                    if attempt == 2:
+                        logger.warning(f"Generation API failed after 3 attempts ({e}). Utilizing grounded fallback.")
+                    else:
+                        delay = 2 ** attempt
+                        logger.warning(f"Generation API attempt {attempt + 1} failed ({e}); retrying in {delay}s.")
+                        time.sleep(delay)
         except Exception as e:
-            logger.warning(f"Generation API failed with ({e}). Utilizing grounded fallback.")
+            logger.warning(f"Generation client setup failed with ({e}). Utilizing grounded fallback.")
 
     # --- OFFLINE DETERMINISTIC GROUNDED FALLBACK ---
     logger.info("Using deterministic grounded fallback.")

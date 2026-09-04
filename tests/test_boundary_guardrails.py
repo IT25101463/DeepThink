@@ -133,7 +133,8 @@ class TestBoundaryGuardrails(unittest.TestCase):
 
         ans = generate_answer("What is the effective range of the Vanguard Trebuchet?", sample_context)
         self.assertIn("codex_vaeloria_ii.pdf", ans)
-        self.assertIn("Page 18", ans)
+        normalized_answer = ans.replace("\u202f", " ")
+        self.assertIn("Page 18", normalized_answer)
         self.assertIn("450 cubits", ans)
 
 
