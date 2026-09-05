@@ -255,9 +255,11 @@ def run_benchmark(
 
 def update_metrics_markdown(summary: Dict[str, Any], results: List[Dict[str, Any]]):
     """
-    Updates docs/metrics.md with the latest verified empirical results.
+    Updates docs/metrics.md with the latest verified empirical results if present.
     """
     metrics_path = PROJECT_ROOT / "docs" / "metrics.md"
+    if not metrics_path.exists():
+        return
     
     rows_md = []
     for r in results:
@@ -276,7 +278,7 @@ def update_metrics_markdown(summary: Dict[str, Any], results: List[Dict[str, Any
 
     content = f"""# System Evaluation & Benchmark Tracking
 
-This document defines the evaluation framework and tracks empirical results across development sprints against the 20 questions in `sample_questions.json`.
+This document defines the evaluation framework and tracks empirical results across architectural development phases against the 20 questions in `sample_questions.json`.
 
 ---
 
@@ -297,7 +299,7 @@ To ensure scientific rigor and honest reporting, we define four core evaluation 
 
 ## 2. Benchmark Progress (20 Sample Questions)
 
-| Metric | Sprint 1 (Text Baseline) | Sprint 2 (Modality-Aware) | Sprint 3 (Hardened Final System) | Target |
+| Metric | Phase 1 (Text Baseline) | Phase 2 (Modality-Aware) | Phase 3 (Final System) | Target |
 | :--- | :--- | :--- | :--- | :--- |
 | **Retrieval Precision (Top-5)** | 60.0% (12/20) | 85.0% (17/20) | **{summary['retrieval_precision']}** | $\\ge 90\\%$ |
 | **Citation Accuracy** | 55.0% (11/20) | 90.0% (18/20) | **{summary['citation_accuracy']}** | $\\ge 95\\%$ |
@@ -306,7 +308,7 @@ To ensure scientific rigor and honest reporting, we define four core evaluation 
 | **Average End-to-End Latency** | 2.1s | 2.8s | **{summary['average_latency_seconds']}s** | $< 3.5s$ |
 
 > [!NOTE]
-> All metrics report exact fractions alongside percentages for scientific transparency.
+> All metrics report exact fractions alongside percentages for scientific transparency. Evaluated across the official 20 development questions in `data/sample_questions.json`.
 
 ---
 

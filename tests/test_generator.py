@@ -10,6 +10,7 @@ from src.generation.generator import (
     format_context_prompt,
     resolve_media_path,
     verify_and_fix_media_paths,
+    normalize_citations,
     synthesize_grounded_fallback,
     generate_answer,
     GROUNDED_SYSTEM_PROMPT
@@ -71,6 +72,16 @@ class TestGenerator(unittest.TestCase):
         ans = synthesize_grounded_fallback("What is the garrison strength?", [self.sample_chunks[1]])
         self.assertIn("plate_00_location_marrowwatch.png", ans)
         self.assertIn("3,107 souls", ans)
+
+    def test_normalize_chunk_citation(self):
+        answer = "The record states 391 AS. [Chunk 1]"
+        normalized = normalize_citations(answer, [self.sample_chunks[0]])
+        self.assertIn("[the_annals_of_the_ashen_era.pdf, Page 4]", normalized)
+        self.assertNotIn("[Chunk 1]", normalized)
+
+    def test_normalize_adds_verified_source_when_missing(self):
+        normalized = normalize_citations("The record states 391 AS.", self.sample_chunks)
+        self.assertIn("[the_annals_of_the_ashen_era.pdf, Page 4]", normalized)
 
     def test_generate_answer_empty_query(self):
         ans = generate_answer("", [])

@@ -1,8 +1,8 @@
 # AI Usage Disclosure Form
 
-> **Competition:** SLIIT Codefest 2026 AI Competition (Powered by IFS)  
-> **Team Name:** DeepThink  
-> **Sub-track:** 1A — Rich Answers, Not Just Text  
+> **Competition:** SLIIT Codefest 2026 AI Competition (Powered by IFS)
+> **Team Name:** DeepThink
+> **Sub-track:** 1A — Rich Answers, Not Just Text
 > **Date:** August / September 2026
 
 ---
@@ -13,10 +13,9 @@ In compliance with **Section 4.1 (AI Usage Policy)** of the SLIIT Codefest 2026 
 
 | AI Tool / Model | Primary Purpose | Development Stage Used |
 | :--- | :--- | :--- |
-| **Claude 3.7 Sonnet / Claude 3.5 Sonnet** | Architectural brainstorming, drafting parser boilerplate, prompt engineering refinement | Sprints 0, 1, 2, 3 |
-| **Google Antigravity (AGY)** | Pair programming assistant, file structure scaffolding, documentation formatting | Sprints 0, 1, 2, 4 |
-| **OpenRouter / Meta Llama 3.3 70B** | Target runtime inference model for document answering and grounding evaluation | Sprints 1, 2, 3 |
-| **HuggingFace (`BAAI/bge-small-en-v1.5`)** | 100% Free local dense text and caption embeddings for ChromaDB vector retrieval | Sprints 1, 2, 3 |
+| **Claude 3.7 Sonnet / Google Antigravity** | Architectural brainstorming, drafting parser boilerplate, prompt refinement | Architecture Scaffolding, Ingestion, UI & Hardening |
+| **Groq Cloud (`openai/gpt-oss-120b`)** | Ultra-fast runtime LPU generation engine (300+ tokens/sec, ~1.35s latency) | Runtime Inference, Grounding & Evaluation |
+| **HuggingFace (`BAAI/bge-small-en-v1.5`)** | 100% Free local dense embeddings for persistent ChromaDB vector retrieval | Vector Embedding & Persistent ChromaDB Indexing |
 
 ---
 
@@ -25,14 +24,15 @@ In compliance with **Section 4.1 (AI Usage Policy)** of the SLIIT Codefest 2026 
 ### 2.1 Decisions Made Exclusively by the Human Team
 1. **Sub-track Selection (1A):** The human team identified that enterprise value in the Ashen Era Archive lay in resolving schematics, plate diagrams, and tables rather than pure text summaries.
 2. **Modality-Aware Chunking Architecture:** Conceiving the `chunks.json` contract and the separation of `text`, `table`, and `image-caption` chunks with direct file linking.
-3. **Modality Score Weighting Formula:** Designing dynamic query intent detection and score boosting ($\mathbf{W}_{\text{modality}}$) rather than relying on an opaque end-to-end black-box model.
-4. **100% Free Local-First Architecture:** Eliminating cloud embedding bottlenecks and credit-card dependencies by standardizing on `BAAI/bge-small-en-v1.5` running locally inside ChromaDB.
-5. **Evaluation Protocol & Adversarial Testing:** Formulating the 4 quantitative metrics (Retrieval Precision, Citation Accuracy, Hallucination Rate, Modality Success Rate) and manually auditing answers against the 1,277-page corpus.
-6. **System Hardening & Negative Constraints:** Diagnosing initial hallucination failures and writing strict negative grounding constraints into the system prompt.
+3. **Compound RAG 3.0 Formulation:** Designing agentic sub-query decomposition, character dossier boosts (+0.35), and multi-entity intersection boosts (+0.40) to resolve complex comparative queries.
+4. **Dynamic 3-Stage Context Budgeting:** Implementing intent-based sizing ($K=2$ to $K=8$), relative score Elbow drop-off ($\alpha=0.60$), and token packing (2,500 tokens) to replace manual UI sliders.
+5. **Strict Epistemic Restraint (Directive 5):** Auditing initial hallucinations and enforcing strict non-extrapolation rules (verbatim reporting of contradictory records with zero speculative bridging).
+6. **Pre-Generation Verification Gate:** Designing the entity presence and field verification gate to refuse unrecorded entities before LLM invocation.
+7. **100% Free Local-First Architecture:** Eliminating cloud embedding bottlenecks and credit-card dependencies by standardizing on `BAAI/bge-small-en-v1.5` running locally inside ChromaDB.
 
 ### 2.2 Tasks Accelerated by AI Assistance
 1. **Syntax & Boilerplate Generation:** Writing standard PyMuPDF image extraction filters and Streamlit component layouts.
-2. **Regex & Markdown Parsing:** Drafting regular expressions for citation matching and table string formatting.
+2. **Regex & Markdown Parsing:** Drafting regular expressions for citation matching, field normalization, and table string formatting.
 3. **Documentation Scaffolding:** Structuring markdown templates and formatting markdown tables.
 
 ---
