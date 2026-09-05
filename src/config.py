@@ -17,10 +17,9 @@ except Exception:
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Set local HuggingFace offline defaults for instant model loading without network delay
+# Keep HuggingFace telemetry disabled while allowing the embedding model to be
+# downloaded on a clean machine and reused from the local cache afterward.
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 # Graceful dotenv loader
 try:

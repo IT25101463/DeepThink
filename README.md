@@ -105,6 +105,26 @@ DeepThink/
 ### 5.1 Prerequisites
 - Python 3.10 or higher
 - Git
+- Tesseract OCR (required for scanned-page OCR)
+
+Install Tesseract using the command for your operating system:
+
+```bash
+# macOS (Homebrew)
+brew install tesseract
+
+# Ubuntu/Debian Linux
+sudo apt-get update && sudo apt-get install -y tesseract-ocr
+```
+
+On Windows, install the Tesseract OCR package with `winget`:
+
+```powershell
+winget install UB-Mannheim.TesseractOCR
+```
+
+If Tesseract is installed in a custom location, set `TESSERACT_CMD` or
+`TESSERACT_PATH` in `.env` to the executable path.
 
 ### 5.2 Installation
 ```bash
@@ -116,12 +136,29 @@ cd DeepThink
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
+# Windows PowerShell equivalent:
+# .\venv\Scripts\Activate.ps1
+
 # 3. Install dependencies
 pip install -r requirements.txt
+
+# The first run downloads the local BGE embedding model; later runs use its cache.
 
 # 4. Configure environment variables
 cp configuration-example/.env.example .env
 # Open .env and add your GROQ_API_KEY (free in 20s at console.groq.com/keys)
+```
+
+Windows PowerShell setup:
+
+```powershell
+git clone https://github.com/IT25101463/DeepThink.git
+Set-Location DeepThink
+py -3 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item configuration-example\.env.example .env
+# Open .env and add your GROQ_API_KEY
 ```
 
 ### 5.3 Running the Pipeline
