@@ -101,7 +101,11 @@ def format_context_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
             context_lines.append(f"Media Path: {norm_media}")
         if caption:
             context_lines.append(f"Caption: {caption}")
-        context_lines.append(f"Content:\n{content}")
+        # Budget chunk content to prevent runaway token usage on free tier TPM limits
+        trimmed_content = content.strip()
+        if len(trimmed_content) > 1200:
+            trimmed_content = trimmed_content[:1200] + "... [archival snippet trimmed for context budget]"
+        context_lines.append(f"Content:\n{trimmed_content}")
 
     # RAG 3.0: Quantitative Aggregates Integration
     from src.retrieval.table_aggregator import extract_and_aggregate_tables
@@ -191,6 +195,47 @@ def verify_and_fix_media_paths(response_text: str, context_chunks: List[Dict[str
                     break
 
     return fixed_text
+
+
+def normalize_citations(response_text: str, context_chunks: List[Dict[str, Any]]) -> str:
+    """Convert model shorthand citations into verified document/page citations."""
+    if not response_text or not context_chunks:
+        return response_text
+
+    chunk_citation = re.compile(
+        r"(?:\[|【)\s*Chunk\s*(\d+)\s*(?:,\s*Page\s*(\d+))?\s*(?:\]|】)",
+        flags=re.IGNORECASE,
+    )
+
+    def replace_chunk(match: re.Match[str]) -> str:
+        chunk_index = int(match.group(1)) - 1
+        if not 0 <= chunk_index < len(context_chunks):
+            return match.group(0)
+        chunk = context_chunks[chunk_index]
+        document = chunk.get("document_name", "Archive Record")
+        page = match.group(2) or chunk.get("page_number", 1)
+        return f"[{document}, Page {page}]"
+
+    normalized = chunk_citation.sub(replace_chunk, response_text)
+    normalized = re.sub(
+        r"\[Document:\s*([^,\]]+),\s*Page\s*(\d+)\]",
+        r"[\1, Page \2]",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+
+    known_documents = [str(c.get("document_name", "")) for c in context_chunks]
+    has_verified_citation = any(
+        document and f"[{document}, Page" in normalized
+        for document in known_documents
+    )
+    if not has_verified_citation:
+        source = context_chunks[0]
+        document = source.get("document_name", "Archive Record")
+        page = source.get("page_number", 1)
+        normalized = normalized.rstrip() + f"\n\nSource: [{document}, Page {page}]"
+
+    return normalized
 
 
 def synthesize_grounded_fallback(query: str, context_chunks: List[Dict[str, Any]]) -> str:
@@ -342,9 +387,11 @@ def generate_answer(
             else:
                 api_base = "https://api.groq.com/openai/v1"
                 # Normalize Groq model ID
-                if ":free" in target_model or "meta-llama/" in target_model or "llama" in target_model:
+                if ":free" in target_model or "meta-llama/" in target_model:
+                    target_model = "llama-3.3-70b-versatile"
+                elif "120b" in target_model.lower():
                     target_model = "openai/gpt-oss-120b"
-                elif "20b" in target_model.lower():
+                elif re.search(r"(?<!1)20b", target_model.lower()):
                     target_model = "openai/gpt-oss-20b"
                 elif "qwen" in target_model.lower():
                     target_model = "qwen/qwen3.8-27b"
@@ -367,18 +414,35 @@ def generate_answer(
                             {"role": "user", "content": formatted_context}
                         ],
                         temperature=0.1,
-                        max_tokens=1024
+                        max_tokens=800
                     )
                     raw_res = completion.choices[0].message.content
                     if raw_res and len(raw_res.strip()) > 10:
-                        return verify_and_fix_media_paths(raw_res, active_chunks)
+                        normalized = normalize_citations(raw_res, active_chunks)
+                        return verify_and_fix_media_paths(normalized, active_chunks)
                     raise RuntimeError("LLM returned an empty or very short response")
                 except Exception as e:
+                    err_str = str(e)
                     if attempt == 2:
-                        logger.warning(f"Generation API failed after 3 attempts ({e}). Utilizing grounded fallback.")
+                        logger.warning(f"Generation API failed after 3 attempts ({err_str}). Utilizing grounded fallback.")
                     else:
-                        delay = 2 ** attempt
-                        logger.warning(f"Generation API attempt {attempt + 1} failed ({e}); retrying in {delay}s.")
+                        # Extract precise backoff wait time if rate limited (e.g. 'try again in 6.81s')
+                        wait_match = re.search(r"try again in ([\d\.]+)s", err_str, re.IGNORECASE)
+                        if wait_match:
+                            delay = min(float(wait_match.group(1)) + 0.6, 12.0)
+                        else:
+                            delay = 2 ** (attempt + 1)
+
+                        # If rate limited (HTTP 429) on Groq, fallback to high-TPM model for next attempt
+                        if ("429" in err_str or "rate limit" in err_str.lower()) and "groq" in api_base:
+                            if "gpt-oss" in target_model:
+                                target_model = "llama-3.3-70b-versatile"
+                                logger.info(f"Rate limit encountered. Switching model to: {target_model}")
+                            elif "llama-3.3" in target_model:
+                                target_model = "llama-3.1-8b-instant"
+                                logger.info(f"Rate limit encountered. Switching model to: {target_model}")
+
+                        logger.warning(f"Generation API attempt {attempt + 1} failed ({err_str}); retrying in {delay:.1f}s.")
                         time.sleep(delay)
         except Exception as e:
             logger.warning(f"Generation client setup failed with ({e}). Utilizing grounded fallback.")
@@ -386,7 +450,8 @@ def generate_answer(
     # --- OFFLINE DETERMINISTIC GROUNDED FALLBACK ---
     logger.info("Using deterministic grounded fallback.")
     fallback_res = synthesize_grounded_fallback(query, active_chunks)
-    return verify_and_fix_media_paths(fallback_res, active_chunks)
+    normalized = normalize_citations(fallback_res, active_chunks)
+    return verify_and_fix_media_paths(normalized, active_chunks)
 
 
 if __name__ == "__main__":

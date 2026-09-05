@@ -17,6 +17,11 @@ except Exception:
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# Set local HuggingFace offline defaults for instant model loading without network delay
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 # Graceful dotenv loader
 try:
     from dotenv import load_dotenv

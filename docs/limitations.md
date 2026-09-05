@@ -24,21 +24,36 @@ In compliance with **Evaluation Criteria (Section 5.3 & 6 - Technical Judgment &
 
 ## 2. Failed Approaches & Discarded Ideas
 
-### 2.1 Discarded Approach 1: Naive Flat Text Chunking (Sprint 1 Baseline)
+### 2.1 Discarded Approach 1: Naive Flat Text Chunking (Phase 1: Text-Only Baseline)
 - **What was tried:** Stripped all images and tables, converting the entire corpus into 500-token plain text chunks.
-- **Why it failed:** 
+- **Why it failed:**
   - Failed completely on 9 out of 10 visual/figure questions in `sample_questions.json`.
   - Answers contained hallucinated descriptions of visual plates instead of actual images.
   - Complex table stats lost column alignment and caused arithmetic errors in LLM reasoning.
-- **Decision:** Shifted to modality-tagged chunking with dedicated image extraction in Sprint 2.
+- **Decision:** Shifted to modality-tagged chunking with dedicated image extraction in Phase 2 (Modality-Aware Pipeline).
 
 ### 2.2 Discarded Approach 2: Full Multimodal Vision-LLM on Every Query
 - **What was tried:** Feeding entire raw PDF page screenshots to a large Multimodal LLM (VLM) for every query.
-- **Why it failed:** 
+- **Why it failed:**
   - Excessive token consumption (exceeded rate limits within 5 queries).
   - High latency (8-12 seconds per response).
   - High hallucination rate on non-visual text queries across 1,277 pages.
 - **Decision:** Implemented **Modality-Aware Hybrid Routing**: only pass visual image assets to the context when the query specifically demands or benefits from visual evidence.
+
+### 2.3 Discarded Approach 3: Static Top-K Retrieval & Manual UI Sliders
+- **What was tried:** Fixed $K=5$ retrieval for all queries, with manual sliders in the UI allowing the user to tweak Top-$K$ and boost factors.
+- **Why it failed:**
+  - For single facts and diagram lookups, $K=5$ introduced 3-4 noisy distractor chunks, slowing generation and risking confusion.
+  - For complex comparative matrices (comparing 2 fortresses or characters across 4 fields), $K=5$ missed secondary document chunks.
+  - Manual sliders force the user to guess optimal parameters, violating autonomous RAG principles.
+- **Decision:** Replaced with **3-Stage Adaptive Context Budgeting** ($K=2$ for single facts, $K=4$ for lore, $K=6\text{--}8$ for comparative matrices + Elbow drop-off filter).
+
+### 2.4 Discarded Approach 4: Speculative Narrative Bridging for Archive Contradictions
+- **What was tried:** Prompting the LLM to synthesize reconciling explanations when two archive documents conflicted (e.g. why one faction record omitted a battle victory mentioned in another).
+- **Why it failed:**
+  - The LLM invented ungrounded rationales (e.g. claiming "divergent narrative framing" or unrecorded motives).
+  - This constituted subtle, unverifiable hallucination violating strict archival integrity.
+- **Decision:** Implemented **Strict Epistemic Restraint (Directive 5)**: report contradictions verbatim with exact source citations and state explicitly that the archive provides no reconciliation.
 
 ---
 
@@ -46,6 +61,8 @@ In compliance with **Evaluation Criteria (Section 5.3 & 6 - Technical Judgment &
 
 | Edge Case | Failure Mode | Mitigation Strategy |
 | :--- | :--- | :--- |
-| **Missing Image File** | Broken image rendering in UI | Generation engine validates `os.path.exists(media_path)` before outputting markdown image tags. |
-| **OpenRouter 429 Rate Limit** | Request dropped, empty response | Exponential backoff (1s, 2s, 4s, 8s, 16s) with automatic fallback model failover. |
-| **Ambiguous Lore Question** | LLM guesses or assumes | Prompt instructions strictly enforce: *"If information is missing or unverified in retrieved chunks, state what is known and what cannot be confirmed."* |
+| **Missing Image File** | Broken image rendering in UI | Generation engine validates `resolve_media_path(media_path)` and disk existence before outputting markdown image tags. |
+| **API Rate Limit / Network Hiccup** | Request dropped, empty response | Exponential backoff retry (1s, 2s, 4s) with deterministic grounded fallback. |
+| **Ambiguous Lore Question** | LLM guesses or assumes | Strict Directive 5 mandates: *"If information is missing or unverified, state what is recorded and what is absent without speculation."* |
+| **Unrecorded / Fabricated Entity** | Hallucinated fictional backstory | Pre-generation verification gate detects missing entities in context and outputs deterministic epistemic refusal. |
+| **Out-of-Scope / Abusive Query** | Wasted retrieval & confusing output | Multi-category regex fast-path returns categorized refusal in $< 0.005$s with 3 helpful archival options and suppresses chunk inspector. |

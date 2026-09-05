@@ -104,7 +104,7 @@ def render_message_content(content: str):
             if resolved:
                 abs_path = PROJECT_ROOT / resolved
                 if abs_path.exists() and abs_path.is_file():
-                    st.image(str(abs_path), caption=alt_text or "Archival Figure Plate", use_container_width=True)
+                    st.image(str(abs_path), caption=alt_text or "Archival Figure Plate", width="stretch")
                     displayed = True
             
             if not displayed:
@@ -119,13 +119,13 @@ def render_message_content(content: str):
                 ]
                 for cand in candidates:
                     if cand.exists() and cand.is_file():
-                        st.image(str(cand), caption=alt_text or "Archival Figure Plate", use_container_width=True)
+                        st.image(str(cand), caption=alt_text or "Archival Figure Plate", width="stretch")
                         displayed = True
                         break
 
             if not displayed:
                 if img_path.startswith("http://") or img_path.startswith("https://") or img_path.startswith("data:image"):
-                    st.image(img_path, caption=alt_text or "Figure", use_container_width=True)
+                    st.image(img_path, caption=alt_text or "Figure", width="stretch")
                 else:
                     st.caption(f"🖼️ *{alt_text}*")
         else:
@@ -223,7 +223,7 @@ def main():
                 range(len(q_options)), 
                 format_func=lambda i: q_options[i]
             )
-            if st.button("Load Question into Chat", use_container_width=True):
+            if st.button("Load Question into Chat", width="stretch"):
                 selected_sample = sample_questions[selected_idx]["question"]
 
         st.markdown("---")
@@ -251,7 +251,7 @@ def main():
         status_color = "🟢 Ready" if corpus_stats["is_indexed"] else "🟡 Standalone Index"
         st.caption(f"Vector Store Status: **{status_color}**")
 
-        if st.button("🗑️ Clear Chat History", use_container_width=True):
+        if st.button("🗑️ Clear Chat History", width="stretch"):
             st.session_state.messages = []
             st.rerun()
 
