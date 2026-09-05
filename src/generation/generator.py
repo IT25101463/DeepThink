@@ -223,6 +223,9 @@ def normalize_citations(response_text: str, context_chunks: List[Dict[str, Any]]
         normalized,
         flags=re.IGNORECASE,
     )
+    # Models may emit typographic non-breaking spaces in measurements and
+    # citations; normalize them so UI text and downstream checks are stable.
+    normalized = normalized.replace("\u202f", " ").replace("\u00a0", " ")
 
     known_documents = [str(c.get("document_name", "")) for c in context_chunks]
     has_verified_citation = any(

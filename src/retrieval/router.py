@@ -58,6 +58,10 @@ GREETING_MESSAGE = (
     "3. 📊 Query tabular troop garrisons, artillery calibers, and ledger finances."
 )
 
+FAREWELL_MESSAGE = (
+    "Goodbye! Thank you for exploring *The Ashen Era Archive* with DeepThink."
+)
+
 # Backward-compatible alias
 OUT_OF_SCOPE_REFUSAL = REAL_WORLD_REFUSAL
 
@@ -106,6 +110,8 @@ GREETING_WORDS = {
     "hi", "hello", "hey", "greetings", "good morning", "good evening", "good afternoon", "who are you", "what can you do", "help"
 }
 
+FAREWELL_WORDS = {"bye", "goodbye", "farewell", "see you", "see ya"}
+
 
 def check_query_domain_scope(query: str) -> Tuple[bool, Optional[str], str]:
     """
@@ -123,6 +129,11 @@ def check_query_domain_scope(query: str) -> Tuple[bool, Optional[str], str]:
     words_list = q_words_only.split()
     if q_words_only in GREETING_WORDS or q_clean in GREETING_WORDS or (words_list and all(w in greeting_tokens for w in words_list)):
         return True, GREETING_MESSAGE, "greeting"
+
+    # Farewells must be handled before the short-token abuse fallback (which
+    # intentionally catches unknown one-to-three-letter inputs such as "xyz").
+    if q_words_only in FAREWELL_WORDS:
+        return True, FAREWELL_MESSAGE, "farewell"
 
     # 2. Check Inappropriate / Profane / Slur Patterns Fast-Path (Option 1)
     for pat in INAPPROPRIATE_PATTERNS:

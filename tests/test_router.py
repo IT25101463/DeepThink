@@ -44,6 +44,13 @@ class TestIntentRouter(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual(cat, "greeting")
 
+    def test_farewell_fast_path(self):
+        for farewell in ("bye", "Goodbye!", "see you"):
+            handled, msg, cat = check_query_domain_scope(farewell)
+            self.assertTrue(handled)
+            self.assertEqual(cat, "farewell")
+            self.assertIn("Goodbye", msg)
+
     def test_in_scope_pass_through(self):
         handled, msg, cat = check_query_domain_scope("Who founded the Order of the Ashen Vanguard?")
         self.assertFalse(handled)
