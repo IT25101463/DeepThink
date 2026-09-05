@@ -77,6 +77,13 @@ def get_corpus_stats() -> Dict[str, Any]:
     return stats
 
 
+WELCOME_MESSAGE = {
+    "role": "assistant",
+    "content": "Greetings! I am **DeepThink**, your multimodal archival assistant for *The Ashen Era*. Ask me any question about history, battle accords, relics, or request visual figure plates, diagrams, and structured data tables.",
+    "chunks": []
+}
+
+
 def render_message_content(content: str):
     """
     Renders message text and converts markdown image tags ![alt](path)
@@ -140,6 +147,9 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = [WELCOME_MESSAGE.copy()]
 
     # Custom CSS for polished, competition-ready visual design
     st.markdown("""
@@ -252,22 +262,12 @@ def main():
         st.caption(f"Vector Store Status: **{status_color}**")
 
         if st.button("🗑️ Clear Chat History", width="stretch"):
-            st.session_state.messages = []
+            st.session_state.messages = [WELCOME_MESSAGE.copy()]
             st.rerun()
 
     # --- MAIN CHAT INTERFACE ---
     st.markdown("<div class='main-header'>📖 DeepThink — Multimodal Document Assistant</div>", unsafe_allow_html=True)
     st.markdown("<div class='sub-header'>SLIIT Codefest 2026 AI Competition &bull; <i>The Ashen Era Archive</i> (415 documents, ~1,277 pages)</div>", unsafe_allow_html=True)
-
-    # Session State for Messages
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": "Greetings! I am **DeepThink**, your multimodal archival assistant for *The Ashen Era*. Ask me any question about history, battle accords, relics, or request visual figure plates, diagrams, and structured data tables.",
-                "chunks": []
-            }
-        ]
 
     # Display Existing Chat History
     for msg in st.session_state.messages:
