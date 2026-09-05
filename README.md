@@ -109,7 +109,7 @@ DeepThink/
 ### 5.2 Installation
 ```bash
 # 1. Clone the repository
-git clone https://github.com/<team_org>/DeepThink.git
+git clone https://github.com/IT25101463/DeepThink.git
 cd DeepThink
 
 # 2. Set up a virtual environment
