@@ -17,7 +17,7 @@ sequenceDiagram
     participant VDB as 🗄️ P3: Local ChromaDB (BGE-small-en-v1.5)
     participant Rank as 🎯 P3: Cross-Encoder Re-Ranker
     participant Verif as ⚖️ P3: Pre-Gen Verifier (Elbow α=0.60)
-    participant LLM as ⚡ P4: Groq Cloud LPU (openai/gpt-oss-120b)
+    participant LLM as ⚡ P4: Groq Cloud LPU (qwen/qwen3.8-27b)
     participant Media as 🖼️ P2: Media Store (data/extracted_media/)
 
     User->>UI: Submits Query (e.g. "Show diagram of Gauntlet of Sorrowfell")

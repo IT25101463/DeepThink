@@ -101,10 +101,10 @@ def format_context_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
             context_lines.append(f"Media Path: {norm_media}")
         if caption:
             context_lines.append(f"Caption: {caption}")
-        # Budget chunk content to prevent runaway token usage on free tier TPM limits
+        # Budget chunk content strictly to prevent exceeding Groq 8K TPM rate limits
         trimmed_content = content.strip()
-        if len(trimmed_content) > 1200:
-            trimmed_content = trimmed_content[:1200] + "... [archival snippet trimmed for context budget]"
+        if len(trimmed_content) > 450:
+            trimmed_content = trimmed_content[:450] + "... [trimmed]"
         context_lines.append(f"Content:\n{trimmed_content}")
 
     # RAG 3.0: Quantitative Aggregates Integration
@@ -175,9 +175,12 @@ def verify_and_fix_media_paths(response_text: str, context_chunks: List[Dict[str
 
     fixed_text = re.sub(image_pattern, _replace_image_tag, response_text)
 
-    # Auto-injection: If context contains high-relevance visual/table chunk and no image was embedded
-    has_image_tag = "![" in fixed_text
-    if not has_image_tag and context_chunks:
+    # Clean up any trailing broken/incomplete image tag cut off by token limit
+    fixed_text = re.sub(r"!\[[^\]]*\]\([^\)]*$", "", fixed_text).strip()
+
+    # Auto-injection: If context contains high-relevance visual/table chunk and no complete image was embedded
+    has_valid_image = bool(re.search(r"!\[.*?\]\(.*?\)", fixed_text))
+    if not has_valid_image and context_chunks:
         for chunk in context_chunks:
             modality = chunk.get("modality", "")
             media_path = chunk.get("media_path")
@@ -389,17 +392,8 @@ def generate_answer(
                     target_model = "meta-llama/llama-3.3-70b-instruct:free"
             else:
                 api_base = "https://api.groq.com/openai/v1"
-                # Normalize Groq model ID
-                if ":free" in target_model or "meta-llama/" in target_model:
-                    target_model = "llama-3.3-70b-versatile"
-                elif "120b" in target_model.lower():
-                    target_model = "openai/gpt-oss-120b"
-                elif re.search(r"(?<!1)20b", target_model.lower()):
-                    target_model = "openai/gpt-oss-20b"
-                elif "qwen" in target_model.lower():
+                if not target_model:
                     target_model = "qwen/qwen3.8-27b"
-                elif not target_model:
-                    target_model = "openai/gpt-oss-120b"
 
             client = OpenAI(
                 base_url=api_base,
@@ -417,7 +411,7 @@ def generate_answer(
                             {"role": "user", "content": formatted_context}
                         ],
                         temperature=0.1,
-                        max_tokens=800
+                        max_tokens=600
                     )
                     raw_res = completion.choices[0].message.content
                     if raw_res and len(raw_res.strip()) > 10:
@@ -429,20 +423,17 @@ def generate_answer(
                     if attempt == 2:
                         logger.warning(f"Generation API failed after 3 attempts ({err_str}). Utilizing grounded fallback.")
                     else:
-                        # Extract precise backoff wait time if rate limited (e.g. 'try again in 6.81s')
+                        # Extract precise backoff wait time if rate limited
                         wait_match = re.search(r"try again in ([\d\.]+)s", err_str, re.IGNORECASE)
                         if wait_match:
-                            delay = min(float(wait_match.group(1)) + 0.6, 12.0)
+                            delay = min(float(wait_match.group(1)) + 0.5, 8.0)
                         else:
                             delay = 2 ** (attempt + 1)
 
-                        # If rate limited (HTTP 429) on Groq, fallback to high-TPM model for next attempt
+                        # If rate limited (HTTP 429) on Groq, fallback to alternate model for next attempt
                         if ("429" in err_str or "rate limit" in err_str.lower()) and "groq" in api_base:
-                            if "gpt-oss" in target_model:
-                                target_model = "llama-3.3-70b-versatile"
-                                logger.info(f"Rate limit encountered. Switching model to: {target_model}")
-                            elif "llama-3.3" in target_model:
-                                target_model = "llama-3.1-8b-instant"
+                            if "3.8" in target_model:
+                                target_model = "qwen/qwen3.6-27b"
                                 logger.info(f"Rate limit encountered. Switching model to: {target_model}")
 
                         logger.warning(f"Generation API attempt {attempt + 1} failed ({err_str}); retrying in {delay:.1f}s.")
