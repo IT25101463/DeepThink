@@ -16,16 +16,24 @@ from src.config import (
 )
 
 
+_CACHED_EMBEDDING_FN = None
+
+
 def get_embedding_function():
     """
-    Initializes the local SentenceTransformer embedding function.
+    Initializes and caches the local SentenceTransformer embedding function.
     Defaults to BAAI/bge-small-en-v1.5 (100% free, zero-card, zero-key).
     """
+    global _CACHED_EMBEDDING_FN
+    if _CACHED_EMBEDDING_FN is not None:
+        return _CACHED_EMBEDDING_FN
+
     try:
         from chromadb.utils import embedding_functions
-        return embedding_functions.SentenceTransformerEmbeddingFunction(
+        _CACHED_EMBEDDING_FN = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=EMBEDDING_MODEL_NAME
         )
+        return _CACHED_EMBEDDING_FN
     except ImportError:
         print("[Warning] chromadb or sentence_transformers not installed. Install via pip install -r requirements.txt")
         return None
@@ -33,9 +41,10 @@ def get_embedding_function():
         print(f"[Warning] Failed to load '{EMBEDDING_MODEL_NAME}': {e}")
         print("Falling back to lightweight 'all-MiniLM-L6-v2'...")
         from chromadb.utils import embedding_functions
-        return embedding_functions.SentenceTransformerEmbeddingFunction(
+        _CACHED_EMBEDDING_FN = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="all-MiniLM-L6-v2"
         )
+        return _CACHED_EMBEDDING_FN
 
 
 def sanitize_metadata(chunk: Dict[str, Any]) -> Dict[str, Any]:

@@ -33,7 +33,7 @@ flowchart TD
     S5 -->|Elbow Method: Score < 0.60 × TopScore| DropTrailing[Discard Noise Chunks]
     S5 -->|Token Packing: Cap at 2500 Tokens| PackContext[Optimized Precision Context]
 
-    PackContext --> S6[6. Groq LPU Generation: openai/gpt-oss-120b]
+    PackContext --> S6[6. Groq LPU Generation: qwen/qwen3.8-27b]
 
     S6 --> S7[7. Multimodal Renderer: Inline Figures & Tables]
     S7 --> UI
@@ -79,7 +79,7 @@ flowchart TD
 - **Token Density Packing**: Enforces a 2,500-token prompt context ceiling.
 
 ### Stage 6: Grounded Generation on Groq LPU (`src/generation/generator.py`)
-- **Flagship Inference**: Calls `openai/gpt-oss-120b` on Groq LPUs at **300+ tokens/second** (~1.4s latency).
+- **Flagship Inference**: Calls `qwen/qwen3.8-27b` on Groq LPUs at **300+ tokens/second** (~1.4s latency).
 - **Strict Epistemic Restraint (Directive 5)**:
   - Reports conflicting archival accounts verbatim with page citations.
   - Strictly forbids inventing speculative reasons, narrative framing, or unproven motives.

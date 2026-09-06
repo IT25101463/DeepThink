@@ -14,7 +14,7 @@ In compliance with **Section 4.1 (AI Usage Policy)** of the SLIIT Codefest 2026 
 | AI Tool / Model | Primary Purpose | Development Stage Used |
 | :--- | :--- | :--- |
 | **Claude 3.7 Sonnet / Google Antigravity** | Architectural brainstorming, drafting parser boilerplate, prompt refinement | Architecture Scaffolding, Ingestion, UI & Hardening |
-| **Groq Cloud (`openai/gpt-oss-120b`)** | Ultra-fast runtime LPU generation engine (300+ tokens/sec, ~1.35s latency) | Runtime Inference, Grounding & Evaluation |
+| **Groq Cloud (`qwen/qwen3.8-27b`)** | Ultra-fast runtime LPU generation engine (300+ tokens/sec, ~1.35s latency) | Runtime Inference, Grounding & Evaluation |
 | **HuggingFace (`BAAI/bge-small-en-v1.5`)** | 100% Free local dense embeddings for persistent ChromaDB vector retrieval | Vector Embedding & Persistent ChromaDB Indexing |
 
 ---

@@ -242,7 +242,7 @@ def main():
         - **Context Sizing:** `⚡ Adaptive (Auto K = 1..8)`
         - **Noise Pruning:** `🎯 Elbow-Method Drop-Off (α = 0.60)`
         - **Verification:** `🛡️ Pre-Gen Entity & Field Gate`
-        - **LLM Engine:** `openai/gpt-oss-120b` *(Groq ⚡ LPU)*
+        - **LLM Engine:** `qwen/qwen3.8-27b` *(Groq ⚡ LPU)*
         """)
 
         # Engine Status Indicator (reads automatically from .env in the background)
@@ -293,12 +293,9 @@ def main():
                         st.text(c.get("content", "")[:300] + ("..." if len(c.get("content", "")) > 300 else ""))
                         st.markdown("---")
 
-    # Handle User Query Input
-    user_prompt = None
-    if selected_sample:
-        user_prompt = selected_sample
-    elif chat_in := st.chat_input("Ask a question about the Ashen Era Archive (e.g. 'Show me the diagram of the Sky-Fortress...')..."):
-        user_prompt = chat_in
+    # Always render the chat input so it never disappears from the UI
+    chat_in = st.chat_input("Ask a question about the Ashen Era Archive (e.g. 'Show me the diagram of the Sky-Fortress...')...")
+    user_prompt = selected_sample if selected_sample else chat_in
 
     if user_prompt:
         # 1. Append User Message
@@ -377,6 +374,7 @@ def main():
             "content": response_text,
             "chunks": display_chunks
         })
+        st.rerun()
 
 
 if __name__ == "__main__":

@@ -17,9 +17,10 @@ except Exception:
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Keep HuggingFace telemetry disabled while allowing the embedding model to be
-# downloaded on a clean machine and reused from the local cache afterward.
+# Keep HuggingFace telemetry disabled and use local cached models
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 # Graceful dotenv loader
 try:
@@ -31,8 +32,8 @@ except ImportError:
 # API Keys (Groq is 100% free with ultra-fast 300 t/s LPU inference & zero credit card needed)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
-# Model Names (Defaults to Groq Flagship GPT-OSS 120B / 20B)
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "openai/gpt-oss-120b")
+# Model Names (Defaults to Groq High-Speed Qwen 27B LPU)
+LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "qwen/qwen3.8-27b")
 # 100% free local HuggingFace embedding (Zero card / Zero API key needed)
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-en-v1.5")
 

@@ -92,7 +92,7 @@ This document records the key architectural and design decisions made throughout
 - **Date:** 2026-09-02
 - **Status:** Accepted
 - **Context:** Shared free-tier aggregators often suffer from upstream HTTP 429 rate limits during peak usage. The team requires a dedicated, lightning-fast inference provider with a generous permanent free tier and zero credit card requirements.
-- **Decision:** Standardize LLM inference on **Groq Cloud** using `openai/gpt-oss-120b` (Flagship 120B model) and `openai/gpt-oss-20b`.
+- **Decision:** Standardize LLM inference on **Groq Cloud** using `qwen/qwen3.8-27b` (High-Speed 27B model) and `qwen/qwen3.6-27b`.
 - **Rationale:**
   1. **Inference Velocity:** Groq's custom LPU (Language Processing Unit) delivers 300+ tokens/sec, reducing user wait time to ~1.4 seconds.
   2. **Generous Free Quota:** 14,400 free requests per day (30 requests/minute) with zero credit card needed.
