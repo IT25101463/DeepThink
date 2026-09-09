@@ -50,33 +50,40 @@ While evaluated on the fantasy *Ashen Era Archive*, DeepThink is architected dir
 
 ## 3. System Architecture
 
+![DeepThink System Architecture](docs/diagrams/system_architecture.png)
+
+<details>
+<summary><b>Click to view interactive Mermaid Flowchart</b></summary>
+
 ```mermaid
 flowchart TD
-    User([👤 User Query]) --> S1[1. Pre-Retrieval Domain Guardrail]
+    User(["👤 User Query"]) --> S1["1. Pre-Retrieval<br/>Domain Guardrail"]
 
-    S1 -->|Out-of-Scope / Abuse / Sensor| FastPath[⚡ Fast-Path Categorized Refusal < 0.01s]
-    FastPath --> UI([🖥️ Streamlit UI])
+    S1 -->|"Out-of-Scope / Abuse / Sensor"| FastPath["⚡ Fast-Path Refusal<br/>(Sub-10ms, 0 Tokens)"]
+    FastPath --> UI(["🖥️ Streamlit UI"])
 
-    S1 -->|In-Scope Archival Query| S2[2. Entity Extraction & Adaptive Budgeter]
+    S1 -->|"In-Scope Archival Query"| S2["2. Entity Extraction &<br/>Adaptive Budgeter"]
 
-    S2 -->|Intent: Single Fact / Visual| K2[Target K = 2]
-    S2 -->|Intent: Comparative Matrix| K6[Target K = 6 to 8]
-    S2 -->|Intent: Standard Lore| K4[Target K = 4]
+    S2 -->|"Intent: Single Fact / Visual"| K2["Target K = 2"]
+    S2 -->|"Intent: Comparative Matrix"| K6["Target K = 6 to 8"]
+    S2 -->|"Intent: Standard Lore"| K4["Target K = 4"]
 
-    K2 & K6 & K4 --> S3[3. Agentic Decomposition & Hybrid Vector Search]
+    K2 & K6 & K4 --> S3["3. Agentic Decomposition &<br/>Hybrid Vector Search"]
 
-    S3 --> S4[4. Cross-Encoder Re-Ranking Engine]
+    S3 --> S4["4. Cross-Encoder<br/>Re-Ranking Engine"]
 
-    S4 -->|Dossier & Multi-Entity Bonuses| S5[5. Pre-Generation Verification & Noise Pruning]
+    S4 -->|"Dossier & Multi-Entity Bonuses"| S5["5. Pre-Generation Verification<br/>& Noise Pruning"]
 
-    S5 -->|Elbow Method: Score < 0.60 × TopScore| DropTrailing[Discard Noise Chunks]
-    S5 -->|Token Packing: Cap at 2500 Tokens| PackContext[Optimized Precision Context]
+    S5 -->|"Elbow Method: Score &lt; 0.60 × Top"| DropTrailing["Discard Noise Chunks"]
+    S5 -->|"Token Packing: Cap at 2500 Tokens"| PackContext["Optimized Precision Context"]
 
-    PackContext --> S6[6. Groq LPU Generation: qwen/qwen3.8-27b]
+    PackContext --> S6["6. Groq LPU Generation:<br/>qwen/qwen3.8-27b"]
 
-    S6 --> S7[7. Multimodal Renderer: Inline Figures & Tables]
+    S6 --> S7["7. Multimodal Renderer:<br/>Inline Figures & Tables"]
     S7 --> UI
 ```
+
+</details>
 
 For in-depth architecture details, see [docs/architecture.md](docs/architecture.md).
 
