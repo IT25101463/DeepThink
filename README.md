@@ -27,6 +27,12 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 2. **Performs Modality-Aware Retrieval:** Biases local vector search towards relevant images, figure plates, and table chunks.
 3. **Generates Grounded Answers with Inline Embeddings:** Synthesizes clear, hallucination-free explanations accompanied directly by embedded figures and rendered tables, citing precise source documents and page numbers.
 
+### Real-World Enterprise Applicability
+While evaluated on the fantasy *Ashen Era Archive*, DeepThink is architected directly for enterprise industrial environments (IFS target domain):
+- **Complex Technical Manuals & CAD Schematics:** Engineers querying aircraft or machinery breakdowns receive the exact circuit diagram or exploded-view assembly plate directly in the response.
+- **Enterprise Ledger & ERP Reconciliation:** Multi-column financial audits and component bills of materials (BOM) are rendered as crisp, interactive tables rather than prose approximation.
+- **Degraded Historical Archives:** Legacy maintenance logs, scanned service reports, and field invoices are parsed using automated OCR with adaptive binarization, eliminating manual digitization bottlenecks.
+
 ---
 
 ## 2. Team Structure & Ownership
@@ -95,9 +101,11 @@ DeepThink/
 ├── ai_usage/
 │   ├── ai-usage-disclosure.md          # Mandatory AI Usage Disclosure (Section 4.1)
 │   ├── skills/                         # Custom assistant skills & prompt rules
-│   ├── claude.md                       # AI chat log records (Markdown)
-│   ├── claude.txt                      # AI chat log records (Plain Text per Section 4.1)
-│   └── context.md                      # AI prompt context & constraints
+│   ├── claude.txt                      # Exported AI chat logs (Unified 75KB per Section 4.1)
+│   ├── claude_p1_fatheen.txt           # Member P1 Ingestion & OCR Claude chat log
+│   ├── claude_p2_shakeer.txt           # Member P2 Visual & Tables Claude chat log
+│   ├── claude_p3_rasheed.txt           # Member P3 Retrieval & Reranker Claude chat log
+│   └── claude_p4_dharshan.txt          # Member P4 Generation & UI Claude chat log
 ├── configuration-example/
 │   ├── .env.example                    # Sample environment variables
 │   └── config.example.json             # Example pipeline settings
@@ -148,6 +156,9 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
+
+# For exact reproducibility (recommended for judges), use the pinned lock file:
+# pip install -r requirements-lock.txt
 
 # The first run downloads the local BGE embedding model; later runs use its cache.
 
@@ -210,5 +221,8 @@ All AI tools (Claude, ChatGPT, Antigravity) were utilized as collaborative codin
 
 Complete disclosure and raw chat transcripts:
 - [ai_usage/ai-usage-disclosure.md](ai_usage/ai-usage-disclosure.md)
-- [ai_usage/claude.md](ai_usage/claude.md)
-- [ai_usage/claude.txt](ai_usage/claude.txt)
+- [ai_usage/claude.txt](ai_usage/claude.txt) (Unified 75KB raw development log)
+- [ai_usage/claude_p1_fatheen.txt](ai_usage/claude_p1_fatheen.txt) (P1: Ingestion & OCR)
+- [ai_usage/claude_p2_shakeer.txt](ai_usage/claude_p2_shakeer.txt) (P2: Visual & Table Extraction)
+- [ai_usage/claude_p3_rasheed.txt](ai_usage/claude_p3_rasheed.txt) (P3: Retrieval & Reranker)
+- [ai_usage/claude_p4_dharshan.txt](ai_usage/claude_p4_dharshan.txt) (P4: Generation & UI)

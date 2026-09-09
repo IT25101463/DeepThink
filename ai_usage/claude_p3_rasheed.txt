@@ -1,0 +1,634 @@
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P3: Rasheed A. A. A.
+Role: Retrieval & Ranking Lead
+Coverage: ChromaDB vector store, BGE embeddings, compound retrieval, entity
+          extraction, cross-relevance reranking, adaptive K budgeting, elbow
+          pruning, CRAG confidence grading, query router and domain guardrail
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
+
+--------------------------------------------------------------------------------
+ChromaDB Setup and BGE Embeddings
+--------------------------------------------------------------------------------
+
+Me:
+ok so for the vector store we decided on chromadb locally. i need to set it up with
+bge-small-en-v1.5 embeddings. how do i initialise the collection properly and make
+sure it doesnt recreate everything on every run
+
+Claude:
+Use get_or_create_collection — it creates the collection on first run and
+retrieves the existing one on subsequent runs. Also use PersistentClient
+so the data survives between script runs:
+
+    import chromadb
+    from chromadb.utils import embedding_functions
+
+    def get_collection(persist_dir: str, collection_name: str = "ashen_era_chunks"):
+        client = chromadb.PersistentClient(path=persist_dir)
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="BAAI/bge-small-en-v1.5"
+        )
+        collection = client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=ef,
+            metadata={"hnsw:space": "cosine"}
+        )
+        return collection
+
+The hnsw:space: cosine is important — BGE is trained for cosine similarity.
+Without it ChromaDB defaults to L2 distance which gives worse results for
+semantic search.
+
+Me:
+first run downloads the BGE model and takes ages. is there a way to know if the
+model is already cached before trying to load it
+
+Claude:
+sentence-transformers caches to ~/.cache/huggingface/hub/ by default.
+You can check if the cache directory exists:
+
+    from pathlib import Path
+
+    def is_model_cached(model_name: str) -> bool:
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        model_slug = model_name.replace("/", "--")
+        return any(cache_dir.glob(f"models--{model_slug}*"))
+
+But honestly for a competition project, just let it download. First run
+is a one-time cost (~133MB). After that it's instant. Document it in your
+README under prerequisites so judges know to expect it.
+
+Me:
+when i query the collection, how do i get the similarity scores back not just the
+documents. i need the scores for my reranker
+
+Claude:
+Pass include=["documents", "metadatas", "distances"] to collection.query():
+
+    results = collection.query(
+        query_texts=[query],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"]
+    )
+
+ChromaDB returns distances not similarities. For cosine space, convert:
+    similarity = 1 - distance
+
+Do this conversion when you build your chunk dicts:
+
+    chunks = []
+    for i, (doc, meta, dist) in enumerate(zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0]
+    )):
+        raw_sim = round(1.0 - float(dist), 4)
+        chunk = dict(meta)
+        chunk["content"] = doc
+        chunk["raw_similarity"] = raw_sim
+        chunk["relevance_score"] = raw_sim
+        chunks.append(chunk)
+
+raw_similarity is your base score before reranking. Store it separately
+so the CRAG verifier can use the original vector score even after reranking
+modifies relevance_score.
+
+Me:
+what if chromadb isnt indexed yet when someone runs the app. we need a fallback
+so the app doesnt just crash
+
+Claude:
+Add a fast in-memory fallback using the raw chunks.json:
+
+    def get_in_memory_chunks(chunks_path: str) -> list[dict]:
+        with open(chunks_path) as f:
+            return json.load(f)
+
+    def search_in_memory(query: str, chunks: list[dict], top_k: int = 5) -> list[dict]:
+        from sentence_transformers import SentenceTransformer, util
+        model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+
+        q_emb = model.encode(query, normalize_embeddings=True)
+        scored = []
+        for c in chunks:
+            c_emb = model.encode(c["content"], normalize_embeddings=True)
+            score = float(util.cos_sim(q_emb, c_emb))
+            scored.append((score, c))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for score, chunk in scored[:top_k]:
+            c = dict(chunk)
+            c["raw_similarity"] = round(score, 4)
+            c["relevance_score"] = round(score, 4)
+            results.append(c)
+        return results
+
+This is slower (no index, brute force) but works as a fallback.
+Check if the chroma_db directory exists and is non-empty — if not,
+automatically use the in-memory path.
+
+
+--------------------------------------------------------------------------------
+Query Router and Domain Guardrail
+--------------------------------------------------------------------------------
+
+Me:
+we need a fast-path that rejects out of scope queries before any retrieval happens.
+like if someone asks about the weather or real world stuff. how to do this without
+calling the LLM which would add latency
+
+Claude:
+Regex pattern matching on the query string. Runs in under 1ms:
+
+    import re
+
+    REAL_WORLD_PATTERNS = [
+        r"\b(weather|temperature|forecast|humidity)\b",
+        r"\b(stock|share price|crypto|bitcoin|forex)\b",
+        r"\b(news|headline|breaking|today's)\b",
+        r"\b(recipe|cook|ingredient|calories)\b",
+        r"\b(who is the president|prime minister|capital of|population of)\b",
+        r"\b(python|javascript|sql|html|css|programming)\b",
+    ]
+
+    GREETING_PATTERNS = [
+        r"^\s*(hi|hello|hey|good morning|good evening|howdy|greetings)\s*[!.,]?\s*$",
+    ]
+
+    FAREWELL_PATTERNS = [
+        r"^\s*(bye|goodbye|see you|thanks|thank you|cheers)\s*[!.,]?\s*$",
+    ]
+
+    def check_query_domain_scope(query: str) -> dict:
+        q = query.lower().strip()
+
+        for pattern in GREETING_PATTERNS:
+            if re.search(pattern, q):
+                return {"action": "fast_path", "reason": "greeting"}
+
+        for pattern in FAREWELL_PATTERNS:
+            if re.search(pattern, q):
+                return {"action": "fast_path", "reason": "farewell"}
+
+        for pattern in REAL_WORLD_PATTERNS:
+            if re.search(pattern, q):
+                return {"action": "fast_path", "reason": "real_world"}
+
+        return {"action": "proceed", "reason": "in_scope"}
+
+Return predefined response strings for each fast_path reason — no LLM call,
+no ChromaDB query. Whole router takes microseconds.
+
+Me:
+also need to detect inappropriate language. we have some offensive words in
+multiple languages since this might be used in sri lanka
+
+Claude:
+Add language-specific offensive pattern lists. For Sinhala/Tamil romanization
+and English:
+
+    INAPPROPRIATE_PATTERNS = [
+        # English
+        r"\b(fuck|shit|ass|bitch|bastard|damn|crap)\b",
+        # Sinhala romanized
+        r"\b(poda|venna|beragaya|hora)\b",
+        # Tamil romanized
+        r"\b(thevidiya|panni|sunni|poolu)\b",
+    ]
+
+Keep these patterns in a config file or module-level constant so teammates
+can extend the list without modifying core logic. Check INAPPROPRIATE_PATTERNS
+before REAL_WORLD_PATTERNS in your router — inappropriate queries should get
+a different refusal message than out-of-scope ones.
+
+Me:
+for the refusal messages, should we give generic ones or something specific with
+examples of what they can ask
+
+Claude:
+Specific with examples — much better UX. Generic refusals feel like dead ends.
+Three suggested questions gives the user an immediate path forward:
+
+    REAL_WORLD_REFUSAL = (
+        "I am DeepThink, specialized exclusively in analyzing The Ashen Era Archive. "
+        "Real-world subjects fall outside the scope of this repository.\n\n"
+        "Here are 3 archival topics you can explore instead:\n"
+        "1. Conflict Chronicles: 'What caused the Purge of Blackport?'\n"
+        "2. Faction Heraldry: 'What is the banner emblem of House Morvain?'\n"
+        "3. Artifact Schematics: 'Show me the attunement cost of the Thrice-Bound Edge.'"
+    )
+
+Keep the refusal message short — one sentence of explanation, then the examples.
+Don't lecture or over-explain. The user wants to know what they can do next.
+
+
+--------------------------------------------------------------------------------
+Adaptive K Budgeting — Intent Classification
+--------------------------------------------------------------------------------
+
+Me:
+we want the number of chunks retrieved (k) to be dynamic based on query type.
+visual queries need k=2, comparative k=6 to 8, single fact k=2, standard k=4.
+how do we classify without calling an LLM
+
+Claude:
+Rule-based classification on the lowercased query. Check in priority order
+(visual first since those are most specific):
+
+    def determine_query_intent_and_budget(
+        query: str,
+        entities: list = None,
+        fields: list = None
+    ) -> dict:
+        q = query.lower().strip()
+
+        # Visual intent — figure plates, maps, portraits, banners
+        visual_kw = ["diagram", "blueprint", "schematic", "figure plate", "plate",
+                     "drawing", "illustration", "image", "photo", "map", "portrait",
+                     "banner", "emblem", "crest", "heraldry"]
+        if any(re.search(r"\b" + re.escape(v) + r"\b", q) for v in visual_kw):
+            return {"intent": "visual", "target_k": 2, "min_k": 1}
+
+        # Single fact — dates, names, locations
+        single_kw = ["when was", "what year", "who is", "who was", "where was",
+                     "born in", "died in"]
+        is_single = any(q.startswith(k) or k in q for k in single_kw)
+        is_not_comparative = not any(k in q for k in ["compare", "difference", "versus"])
+        if is_single and is_not_comparative:
+            return {"intent": "single_fact", "target_k": 2, "min_k": 1}
+
+        # Comparative — multiple entities or explicit compare keywords
+        ent_count = len(entities) if entities else 0
+        if ent_count >= 2 or any(k in q for k in ["compare", "versus", "vs", "difference between"]):
+            target_k = min(8, max(6, ent_count * 3))
+            return {"intent": "comparative", "target_k": target_k, "min_k": 2}
+
+        # Quantitative / aggregation
+        quant_kw = ["total", "sum", "average", "how many", "count", "aggregate", "ledger"]
+        if any(re.search(r"\b" + re.escape(k) + r"\b", q) for k in quant_kw):
+            return {"intent": "quantitative_or_multihop", "target_k": 6, "min_k": 2}
+
+        return {"intent": "standard_narrative", "target_k": 4, "min_k": 2}
+
+Entire function runs in microseconds. No model call, no API cost.
+
+
+--------------------------------------------------------------------------------
+Entity Extraction for Query Understanding
+--------------------------------------------------------------------------------
+
+Me:
+we need to extract named entities from the query so the reranker can do entity
+matching. how do we do that without spacy or an NLP model since we want to keep it fast
+
+Claude:
+Dictionary lookup against your known corpus entities. You have 415 documents
+in a known fantasy world — compile a list of all known entity names and match
+greedily from longest to shortest:
+
+    KNOWN_ENTITIES = [
+        "Ignatz Ashgrove the Oathless", "Aldous Wrenfield the Last Warden",
+        "House Morvain", "The Ashen Vanguard", "Greyfell Citadel",
+        "Thrice-Bound Edge", "Thrice-Bound Lantern", "Weeping Lurker",
+        "Cinder-Wrought Aegis", "Gauntlet of Sorrowfell", "Emberdeep",
+        # ... all entities from your corpus ...
+    ]
+
+    # Sort longest first to match multi-word names before single words
+    KNOWN_ENTITIES_SORTED = sorted(KNOWN_ENTITIES, key=len, reverse=True)
+
+    def extract_entities(query: str) -> list[str]:
+        q_lower = query.lower()
+        found = []
+        remaining = q_lower
+        for entity in KNOWN_ENTITIES_SORTED:
+            if entity.lower() in remaining:
+                found.append(entity)
+                remaining = remaining.replace(entity.lower(), "")
+        return found
+
+Fast, deterministic, no model overhead. The tradeoff is you need to maintain
+the entity list as your corpus grows — but for a fixed competition corpus
+that's fine.
+
+Me:
+what about query fields like garrison_strength, attunement_cost, founding_year.
+how do we extract those
+
+Claude:
+Same approach — keyword-to-field mapping:
+
+    KNOWN_FIELDS = {
+        "garrison_strength": ["garrison", "garrison strength", "troops", "souls under arms", "soldiers"],
+        "attunement_cost": ["attunement", "attunement cost", "shards", "shards of will", "bind cost"],
+        "founding_year": ["founded", "founding", "established", "origin year", "founded in"],
+        "threat_rating": ["threat", "threat rating", "threat classification", "danger level"],
+        "banner_emblem": ["banner", "emblem", "heraldry", "crest", "insignia", "coat of arms"],
+    }
+
+    def extract_fields(query: str) -> list[str]:
+        q_lower = query.lower()
+        found = []
+        for field, aliases in KNOWN_FIELDS.items():
+            if any(alias in q_lower for alias in aliases):
+                found.append(field)
+        return found
+
+Return field names as strings. The reranker uses these to add a bonus when
+a chunk contains field-relevant content (e.g. a chunk mentioning "garrison strength"
+gets a bonus for a garrison_strength field query).
+
+
+--------------------------------------------------------------------------------
+Cross-Relevance Reranking
+--------------------------------------------------------------------------------
+
+Me:
+for the reranker, how do we combine entity matching score, keyword coverage and
+the base vector score into one number. what weights work best
+
+Claude:
+Additive composite where entity bonuses accumulate on top of the weighted base:
+
+    def compute_cross_relevance(query: str, chunk: dict) -> float:
+        q_clean = query.lower().strip()
+        keywords = extract_meaningful_keywords(q_clean)   # strip stopwords
+        entities = extract_entities(query)
+        fields = extract_fields(query)
+
+        content = str(chunk.get("content", "")).lower()
+        doc_name = str(chunk.get("document_name", "")).lower()
+        caption = str(chunk.get("caption", "") or "").lower()
+        section = str(chunk.get("section_title", "") or "").lower()
+        full_text = f"{doc_name} {caption} {section} {content}"
+        modality = str(chunk.get("modality", "text"))
+
+        # 1. Entity bonus (additive per entity)
+        entity_bonus = 0.0
+        has_entity_hit = False
+        matched_count = 0
+        for ent in entities:
+            if ent.lower() in full_text:
+                entity_bonus += 0.50
+                has_entity_hit = True
+                matched_count += 1
+            else:
+                # Partial token match
+                toks = [t for t in ent.split() if len(t) > 3]
+                if toks and all(t.lower() in full_text for t in toks):
+                    entity_bonus += 0.35
+                    has_entity_hit = True
+                    matched_count += 1
+
+        # Multi-entity intersection bonus
+        if matched_count >= 2:
+            entity_bonus += 0.40
+
+        # 2. Dossier bonus (doc named after queried entity)
+        dossier_bonus = 0.0
+        for ent in entities:
+            ent_norm = ent.replace(" ", "_").replace("-", "_").lower()
+            doc_norm = doc_name.replace("-", "_")
+            if ent_norm in doc_norm:
+                dossier_bonus += 0.35
+                break
+
+        # 3. Field match bonus
+        field_bonus = sum(
+            0.25 for f in fields
+            if any(a in full_text for a in KNOWN_FIELDS.get(f, [f]))
+        )
+
+        # 4. Keyword coverage
+        if not keywords:
+            kw_coverage = 0.5
+        else:
+            found = sum(1 for kw in keywords if re.search(r"\b" + re.escape(kw) + r"\b", full_text))
+            kw_coverage = found / len(keywords)
+
+        # 5. Phrase bonus
+        phrase_bonus = 0.0
+        if len(keywords) >= 2:
+            phrase = " ".join(keywords[:3])
+            if phrase in content or phrase in caption:
+                phrase_bonus = 0.35
+
+        # 6. Base scores
+        base_score = float(chunk.get("relevance_score", 0.5) or 0.5)
+        raw_sim = float(chunk.get("raw_similarity", 0.5) or 0.5)
+
+        # 7. Modality boost
+        modality_bonus = 0.15 if (chunk.get("media_path") and modality in ("image-caption", "table")) else 0.0
+
+        # 8. Reliability multiplier
+        reliability = str(chunk.get("source_reliability", "")).lower()
+        rel_mult = 1.1 if ("official" in reliability or "codex" in reliability) else \
+                   0.85 if ("ballad" in reliability or "tavern" in reliability) else 1.0
+
+        # 9. Entity penalty
+        entity_penalty = 0.2 if (entities and not has_entity_hit and len(keywords) > 0) else 1.0
+
+        cross_score = (
+            (base_score * 0.25) +
+            (raw_sim * 0.20) +
+            (kw_coverage * 0.25) +
+            entity_bonus +
+            dossier_bonus +
+            field_bonus +
+            phrase_bonus +
+            modality_bonus
+        ) * rel_mult * entity_penalty
+
+        return round(cross_score, 4)
+
+Me:
+the reranker is updating relevance_score in the chunk dict. should i mutate the
+original chunk or make a copy
+
+Claude:
+Make a copy — mutating the original can cause issues if the same chunk object
+is used elsewhere (e.g. in the fallback path or logging):
+
+    def rerank_chunks(query: str, chunks: list[dict], top_k: int = 5) -> list[dict]:
+        if not chunks:
+            return []
+
+        reranked = []
+        for c in chunks:
+            c_copy = dict(c)              # shallow copy is enough
+            score = compute_cross_relevance(query, c)
+            c_copy["rerank_score"] = score
+            c_copy["relevance_score"] = score
+            reranked.append(c_copy)
+
+        reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
+        return reranked[:top_k]
+
+Shallow copy with dict(c) is fine since chunk values are all primitives
+(strings, ints, floats). Deep copy not needed.
+
+
+--------------------------------------------------------------------------------
+Elbow Method Score Drop-Off and Token Budget
+--------------------------------------------------------------------------------
+
+Me:
+after reranking we want to prune trailing low-relevance chunks. we're calling this
+the elbow method. basically drop chunks whose score falls below a fraction of the
+top score. how do i implement that
+
+Claude:
+    def apply_relative_score_dropoff(
+        chunks: list[dict],
+        alpha: float = 0.60,
+        min_k: int = 1,
+        max_k: int = 8
+    ) -> list[dict]:
+        if not chunks:
+            return []
+
+        sorted_chunks = sorted(
+            chunks,
+            key=lambda x: float(x.get("relevance_score", 0.0) or 0.0),
+            reverse=True
+        )
+
+        top_score = float(sorted_chunks[0].get("relevance_score", 0.0))
+        if top_score <= 0.0:
+            return sorted_chunks[:min_k]
+
+        threshold = top_score * alpha
+        retained = []
+
+        for i, c in enumerate(sorted_chunks):
+            c_score = float(c.get("relevance_score", 0.0) or 0.0)
+            if i < min_k:
+                retained.append(c)
+                continue
+            if len(retained) >= max_k:
+                break
+            if c_score >= threshold:
+                retained.append(c)
+            else:
+                logger.debug(f"Drop-off at chunk {i+1}: score {c_score:.3f} < threshold {threshold:.3f}")
+                break
+
+        return retained
+
+alpha=0.60 means keep chunks within 60% of top score. Good starting value.
+Run your eval on 0.55, 0.60, 0.65 and pick the best for your 20 questions.
+
+Me:
+and after the elbow pruning, we also want to cap the total tokens sent to the LLM
+to avoid slow generation. how to do that without a proper tokenizer
+
+Claude:
+Heuristic tokenization — 1 word ≈ 1.33 tokens. Close enough for a context budget:
+
+    def apply_token_budget_packing(
+        chunks: list[dict],
+        max_tokens: int = 2500
+    ) -> list[dict]:
+        packed = []
+        current_tokens = 0
+
+        for c in chunks:
+            text = str(c.get("content", "")) + " " + str(c.get("caption", "") or "")
+            word_count = len(text.split())
+            est_tokens = max(int(word_count * 1.33), 10)
+
+            if packed and (current_tokens + est_tokens > max_tokens):
+                logger.debug(f"Token budget reached ({current_tokens} tokens). Stopping.")
+                break
+
+            packed.append(c)
+            current_tokens += est_tokens
+
+        return packed
+
+2500 tokens leaves comfortable room for the system prompt + user query +
+generation output within a typical 8k context window. Adjust if you switch models.
+
+
+--------------------------------------------------------------------------------
+CRAG Confidence Grading
+--------------------------------------------------------------------------------
+
+Me:
+for CRAG we want to evaluate retrieval quality before calling the LLM. three verdicts:
+CORRECT, AMBIGUOUS, OUT_OF_DOMAIN. how do we compute this from just the vector scores
+without another model call
+
+Claude:
+Read the raw_similarity you already computed during ChromaDB retrieval.
+No second model call needed:
+
+    def evaluate_retrieval_confidence(
+        query: str,
+        retrieved_chunks: list[dict],
+        threshold: float = 0.28
+    ) -> dict:
+        if not retrieved_chunks:
+            return {
+                "verdict": "OUT_OF_DOMAIN",
+                "is_in_domain": False,
+                "confidence_score": 0.0,
+                "top_similarity": 0.0
+            }
+
+        top_sim = max(
+            float(c.get("raw_similarity", 0.0) or 0.0)
+            for c in retrieved_chunks
+        )
+
+        # Count how many retrieved chunks contain known corpus entities
+        all_text = " ".join(str(c.get("content", "")) for c in retrieved_chunks).lower()
+        entities = extract_entities(query)
+        entity_presence = sum(1 for e in entities if e.lower() in all_text)
+        entity_ratio = entity_presence / max(len(entities), 1)
+
+        if top_sim >= 0.45 and (not entities or entity_ratio > 0.0):
+            verdict = "CORRECT"
+        elif top_sim >= 0.28:
+            verdict = "AMBIGUOUS"
+        else:
+            verdict = "OUT_OF_DOMAIN"
+
+        return {
+            "verdict": verdict,
+            "is_in_domain": verdict != "OUT_OF_DOMAIN",
+            "confidence_score": round(top_sim, 4),
+            "top_similarity": round(top_sim, 4)
+        }
+
+CORRECT → pass to LLM normally.
+AMBIGUOUS → pass to LLM, but add a note that some context may be missing.
+OUT_OF_DOMAIN → skip LLM entirely, return the standard refusal message.
+
+Me:
+what if someone asks about a real corpus entity but with a different phrasing and
+the similarity comes back low. wont that give a false OUT_OF_DOMAIN verdict
+
+Claude:
+Yes, that's the failure case. The entity_ratio check partially mitigates it —
+if your entity extractor found a known corpus name in the query AND that name
+appears in the retrieved chunks, it's unlikely to be truly OOD even if similarity
+is borderline.
+
+Also tune your threshold conservatively (0.28 rather than 0.35).
+False OOD is a worse user experience than a slightly uncertain answer.
+If in doubt, return AMBIGUOUS and let the LLM try — the grounded system prompt
+will refuse to hallucinate anyway.
+
+================================================================================
+END OF LOG — P3 (Rasheed A. A. A.)
+================================================================================

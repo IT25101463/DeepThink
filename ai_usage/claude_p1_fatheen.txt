@@ -1,0 +1,444 @@
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P1: Fatheen M. F. A.
+Role: Document Parsing & OCR Lead
+Coverage: Multi-format ingestion pipeline, Tesseract OCR, hierarchical chunking,
+          source reliability classification, scanned PDF handling
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
+
+--------------------------------------------------------------------------------
+Getting the Ingestion Pipeline Started
+--------------------------------------------------------------------------------
+
+Me:
+ok so i need to write a ingestion pipeline for our project. we have 415 documents in
+different formats like pdf docx markdown txt and some scanned pdfs too. how do i
+structure this without making seperate scripts for each format type
+
+Claude:
+Best approach is a single dispatcher function that routes based on file extension.
+You detect the format, call the right parser, and everything returns the same
+chunk structure:
+
+    from pathlib import Path
+
+    def parse_document(filepath: Path) -> list[dict]:
+        ext = filepath.suffix.lower()
+        if ext == ".pdf":
+            return parse_pdf(filepath)
+        elif ext in (".docx", ".doc"):
+            return parse_docx(filepath)
+        elif ext == ".md":
+            return parse_markdown(filepath)
+        elif ext == ".txt":
+            return parse_text(filepath)
+        else:
+            raise ValueError(f"Unsupported format: {ext}")
+
+One dispatcher, each parser is its own function. Each returns the same list[dict]
+structure so downstream code doesn't need to know which format it came from.
+
+Me:
+for pdfs specifically, some of them are scanned so pdfminer cant read them. how do
+i handle that automatically like without the user having to specify which ones are scans
+
+Claude:
+Check per page, not per document — some PDFs mix scanned and text pages.
+Use pymupdf to extract text and check the character count:
+
+    def is_scanned_page(page, min_char_count: int = 40) -> bool:
+        try:
+            text = page.get_text("text").strip()
+            if len(text) >= min_char_count:
+                return False
+            images = page.get_images()
+            return len(images) > 0 or len(text) == 0
+        except Exception:
+            return False
+
+If a page has fewer than 40 characters but has embedded images, treat it as
+scanned and run OCR on it. 40 is a conservative threshold — you can tune it.
+
+Me:
+and also for the filenames of scanned pdfs, some have "scan" in the name. should
+i detect that too or just rely on the page level check
+
+Claude:
+Both. Do a filename check first as a fast path — if the name contains "scan" or
+has the ".scan.pdf" pattern, treat the whole document as scanned from the start
+and skip the per-page text extraction attempt:
+
+    def detect_document_type(file_path: Path) -> str:
+        name = file_path.name.lower()
+        if ".scan.pdf" in name or "_scan" in name or "scan" in name:
+            return "scan"
+        ext = file_path.suffix.lower()
+        if ext == ".pdf":
+            return "pdf"
+        elif ext == ".docx":
+            return "docx"
+        elif ext == ".md":
+            return "md"
+        return "txt"
+
+For documents where the type is "scan", skip the text extraction entirely and
+go straight to OCR on all pages. For type "pdf", still do the per-page check
+because they might be hybrid.
+
+Me:
+makes sense. how do i detect document type separate from the file extension check
+since some files might have wrong extensions
+
+Claude:
+For a hackathon with a known corpus, extension-based detection is fine — don't
+over-engineer it. But if you want a fallback, python-magic reads the actual file
+header bytes:
+
+    import magic
+    mime = magic.from_file(str(filepath), mime=True)
+
+That gives you "application/pdf", "application/vnd.openxmlformats..." etc.
+Only add this if you actually see extension mismatches in your corpus.
+For the Ashen Era Archive with 415 files of known provenance, the extension
+check is reliable enough.
+
+
+--------------------------------------------------------------------------------
+Chunk IDs and Metadata Design
+--------------------------------------------------------------------------------
+
+Me:
+for chunk ids should i use uuid4 or some kind of deterministic slug. the problem with
+uuid is every time we rerun the pipeline we get new ids and chromadb accumulates
+duplicates
+
+Claude:
+Use a deterministic slug. UUIDs break idempotency — reruns create duplicates.
+Build the ID from source filename + page + chunk index:
+
+    import re
+    from pathlib import Path
+
+    def sanitize_id(text: str) -> str:
+        text = text.lower()
+        text = re.sub(r'[^a-z0-9_]+', '_', text)
+        text = re.sub(r'_+', '_', text).strip('_')
+        return text[:60] if text else "chunk"
+
+    def make_chunk_id(filepath: Path, page: int, chunk_idx: int) -> str:
+        base = sanitize_id(filepath.stem)
+        return f"{base}_p{page}_c{chunk_idx}"
+
+Result: "codex_vaeloria_weapons_p4_c2" — human-readable, stable across reruns.
+Use get_or_create_collection in ChromaDB and it won't insert duplicates.
+
+Me:
+also we need to assign reliability tiers to chunks based on which folder they come
+from. codex docs are authoritative, wiki is secondary, chronicles are narrative,
+ephemera stuff is unreliable. how do we classify this automatically from the path
+
+Claude:
+Path-based heuristics work perfectly for your corpus structure.
+Map folder names and filename patterns to reliability tiers:
+
+    def assign_source_reliability(file_path: Path) -> str:
+        path_str = str(file_path).lower()
+        name_str = file_path.stem.lower()
+
+        if "codex" in path_str or "annals" in name_str:
+            return "official_codex"
+        elif "wiki" in path_str:
+            return "wiki"
+        elif "chronicles" in path_str:
+            return "novel"
+        elif "trial" in name_str or "court_martial" in name_str:
+            return "ephemera_trial"
+        elif "ballad" in name_str or "tavern" in name_str or "song" in name_str:
+            return "ephemera_tavern"
+        elif "ledger" in name_str or "manifest" in name_str:
+            return "ephemera_ledger"
+        elif "letter" in name_str or "dispatch" in name_str:
+            return "ephemera_letter"
+        elif "catalogue" in name_str or "auction" in name_str:
+            return "ephemera_catalogue"
+        elif "ephemera" in path_str:
+            return "ephemera"
+        return "unknown"
+
+Store this as a string in chunk metadata. The reranker will apply a numeric
+multiplier (1.10 for official_codex, down to 0.85 for ephemera_tavern) at
+query time. Don't embed the number in the metadata — keep it in the scoring logic.
+
+
+--------------------------------------------------------------------------------
+Hierarchical Chunking Strategy
+--------------------------------------------------------------------------------
+
+Me:
+for chunking the text after parsing, whats the best chunk size. we tried 500 tokens
+but some answers span across chunk boundaries
+
+Claude:
+The boundary problem is real. Two fixes:
+
+1. Chunk by section first (use headers as natural break points), then
+   split oversized sections by character limit as a fallback.
+
+2. Add overlap — when you split a section into multiple chunks,
+   carry the last N characters of the previous chunk into the next one:
+
+    CHUNK_SIZE = 800       # characters
+    CHUNK_OVERLAP = 150    # characters
+
+    def split_with_overlap(text: str, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP) -> list[str]:
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + size
+            chunks.append(text[start:end])
+            start = end - overlap
+        return chunks
+
+800 chars / 150 overlap works well for lore documents with mixed-length paragraphs.
+The overlap ensures that an answer straddling two chunks is fully captured in
+at least one of them.
+
+Me:
+for markdown files the headers are natural section boundaries. how do i split on
+those cleanly
+
+Claude:
+Use regex to find all heading markers and split on them:
+
+    import re
+
+    def chunk_markdown_by_section(text: str) -> list[dict]:
+        # Split on H1, H2, H3 headings
+        pattern = r'(?=^#{1,3}\s)', flags=re.MULTILINE
+        sections = re.split(pattern, text, flags=re.MULTILINE)
+
+        chunks = []
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            # Extract heading as section_title
+            lines = section.split('\n', 1)
+            title = lines[0].lstrip('#').strip()
+            body = lines[1].strip() if len(lines) > 1 else ""
+            chunks.append({"section_title": title, "content": body})
+
+        return chunks
+
+This gives you clean section_title metadata on every chunk, which is gold
+for your reranker — it can match query keywords against section titles with
+a bonus score.
+
+Me:
+and for docx files, how do we extract the section structure. paragraphs dont have
+header markers the same way markdown does
+
+Claude:
+python-docx exposes paragraph styles. Headings have styles like "Heading 1",
+"Heading 2" etc:
+
+    from docx import Document
+
+    def parse_docx(filepath: Path) -> list[dict]:
+        doc = Document(str(filepath))
+        sections = []
+        current_section = {"title": "", "content": []}
+
+        for para in doc.paragraphs:
+            style = para.style.name.lower()
+            if "heading" in style:
+                if current_section["content"]:
+                    sections.append(current_section)
+                current_section = {"title": para.text.strip(), "content": []}
+            else:
+                if para.text.strip():
+                    current_section["content"].append(para.text.strip())
+
+        if current_section["content"]:
+            sections.append(current_section)
+
+        return [
+            {"section_title": s["title"], "content": "\n".join(s["content"])}
+            for s in sections
+        ]
+
+If the DOCX has no heading styles (flat formatting), fall back to paragraph-based
+chunking with overlap. Check len(sections) after parsing — if it's 1 or 0,
+the document has no styled headings and you need the fallback.
+
+
+--------------------------------------------------------------------------------
+OCR Engine — Tesseract and Image Preprocessing
+--------------------------------------------------------------------------------
+
+Me:
+we installed tesseract but pytesseract cant find it. how do we make the path detection
+work on both mac and windows without hardcoding
+
+Claude:
+Use shutil.which first (respects PATH), then check common install locations:
+
+    import shutil, os
+    from pathlib import Path
+
+    COMMON_TESSERACT_PATHS = [
+        os.getenv("TESSERACT_CMD", ""),
+        os.getenv("TESSERACT_PATH", ""),
+        "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+        "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
+        "/usr/bin/tesseract",
+        "/usr/local/bin/tesseract",
+        "/opt/homebrew/bin/tesseract",
+    ]
+
+    def find_tesseract_binary() -> str | None:
+        which_cmd = shutil.which("tesseract")
+        if which_cmd and os.path.isfile(which_cmd):
+            return which_cmd
+        for candidate in COMMON_TESSERACT_PATHS:
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        return None
+
+Then on init:
+    cmd = find_tesseract_binary()
+    if cmd:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+
+Also add TESSERACT_CMD to .env.example so teammates can override it
+without touching code.
+
+Me:
+the ocr on dark or blurry pages is terrible. just getting random characters.
+what preprocessing should we apply
+
+Claude:
+For degraded historical document scans, this preprocessing pipeline works well:
+
+1. Grayscale conversion
+2. Upscale to at least 1000px wide (low DPI kills OCR)
+3. Contrast enhancement
+4. Sharpening
+5. Binarization — threshold out the parchment/paper background color
+
+    from PIL import Image, ImageEnhance, ImageFilter
+
+    def preprocess_image_for_ocr(
+        image_input,
+        contrast_factor: float = 1.8,
+        upscale_min_width: int = 1000,
+        binarize_threshold: int = 140
+    ) -> Image.Image:
+        if isinstance(image_input, (str, Path)):
+            img = Image.open(str(image_input))
+        else:
+            img = image_input.copy()
+
+        if img.mode != "L":
+            img = img.convert("L")
+
+        width, height = img.size
+        if width < upscale_min_width:
+            scale = upscale_min_width / max(width, 1)
+            new_size = (int(width * scale), int(height * scale))
+            img = img.resize(new_size, resample=Image.Resampling.BILINEAR)
+
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(contrast_factor)
+        img = img.filter(ImageFilter.SHARPEN)
+
+        table = [0 if i < binarize_threshold else 255 for i in range(256)]
+        img = img.point(table, "1")
+
+        return img
+
+The binarize threshold of 140 removes parchment tint. Go lower (120) if text
+is getting wiped out, higher (160) if background noise is still coming through.
+
+Me:
+and how do we convert a fitz page to a PIL image to feed into that
+
+Claude:
+    pix = page.get_pixmap(dpi=150)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+Use 150 DPI for a good speed/quality balance. If OCR quality is still bad
+after preprocessing, bump to 200. Don't go below 100 — Tesseract accuracy
+tanks below that.
+
+Me:
+how do we set the psm mode. for the scanned pages some are full page layout and
+some are single column
+
+Claude:
+Pass it in the custom config string to pytesseract:
+
+    custom_config = "--oem 3 --psm 3"   # auto page layout (full page)
+    # or
+    custom_config = "--oem 3 --psm 6"   # single block of uniform text
+
+    text = pytesseract.image_to_string(processed_img, config=custom_config)
+
+--oem 3 is LSTM + legacy combined, best quality.
+--psm 3 = fully automatic page segmentation (safe default).
+--psm 6 = single uniform block — faster and more accurate for single-column pages.
+
+For your corpus, start with psm 3 across the board. If a specific document
+type (like court transcripts or ledgers) consistently has one-column layout,
+hardcode psm 6 for that document_type.
+
+Me:
+what happens if tesseract is not installed on the machine. should we crash or
+silently skip
+
+Claude:
+Silently skip and log a debug warning. Never crash the whole pipeline
+because one optional component is missing:
+
+    _TESSERACT_CHECKED = False
+    _TESSERACT_AVAILABLE = False
+
+    def init_tesseract() -> bool:
+        global _TESSERACT_CHECKED, _TESSERACT_AVAILABLE
+        if _TESSERACT_CHECKED:
+            return _TESSERACT_AVAILABLE
+
+        cmd = find_tesseract_binary()
+        if cmd:
+            try:
+                import pytesseract
+                pytesseract.pytesseract.tesseract_cmd = cmd
+                _TESSERACT_AVAILABLE = True
+            except ImportError:
+                _TESSERACT_AVAILABLE = False
+        else:
+            _TESSERACT_AVAILABLE = False
+
+        _TESSERACT_CHECKED = True
+        if not _TESSERACT_AVAILABLE:
+            logger.debug("Tesseract not found — falling back to embedded text extraction.")
+        return _TESSERACT_AVAILABLE
+
+    def run_ocr_on_image(image_input, psm: int = 3) -> str:
+        if not init_tesseract():
+            return ""   # graceful empty string, not a crash
+        ...
+
+The caller gets an empty string back. The pipeline stores it as a chunk with
+empty content, which the retriever will naturally rank last. No exception, no crash.
+
+================================================================================
+END OF LOG — P1 (Fatheen M. F. A.)
+================================================================================

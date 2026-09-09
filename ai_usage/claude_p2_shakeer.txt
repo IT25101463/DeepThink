@@ -1,0 +1,338 @@
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P2: M. M. M. Shakeer
+Role: Visual & Table Extraction Lead
+Coverage: Figure plate extraction from PDFs, image captioning, media metadata,
+          table extraction and markdown conversion, codex plate chunk design
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
+
+--------------------------------------------------------------------------------
+Extracting Figure Plates from PDFs
+--------------------------------------------------------------------------------
+
+Me:
+so my job is to extract all the images and figure plates from our pdf corpus and store
+them properly. how do i do this with pymupdf because some pdfs have embedded images
+and some have images that are part of the page render
+
+Claude:
+pymupdf handles both. For embedded images (stored in the PDF's XObject table),
+use get_images() + extract_image():
+
+    import fitz
+    from PIL import Image
+    import io
+
+    def extract_images_from_pdf(pdf_path: str, output_dir: str) -> list[dict]:
+        doc = fitz.open(pdf_path)
+        extracted = []
+
+        for page_num, page in enumerate(doc):
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                img_bytes = base_image["image"]
+                ext = base_image["ext"]
+
+                pil_img = Image.open(io.BytesIO(img_bytes))
+                w, h = pil_img.size
+
+                # skip tiny decorators and icons
+                if w < 100 or h < 100:
+                    continue
+
+                filename = f"page{page_num+1}_img{img_index+1}.{ext}"
+                out_path = os.path.join(output_dir, filename)
+                with open(out_path, "wb") as f:
+                    f.write(img_bytes)
+
+                extracted.append({
+                    "page": page_num + 1,
+                    "path": out_path,
+                    "width": w,
+                    "height": h
+                })
+
+        return extracted
+
+For images that are rendered as page content (not embedded), render the whole
+page to an image with page.get_pixmap() and save that. Those are usually the
+full-page plates you want to keep anyway.
+
+Me:
+some of the images are coming out very small like 20x20 pixels and they are clearly
+just borders or bullet decorators. how do i filter them out properly
+
+Claude:
+The 100x100 pixel filter catches most of them. But also check aspect ratio —
+legitimate figure plates are generally close to square or landscape. Extreme
+aspect ratios (very tall and thin, or very wide and flat) are usually decorative
+dividers:
+
+    def is_meaningful_image(pil_img: Image.Image) -> bool:
+        w, h = pil_img.size
+        if w < 100 or h < 100:
+            return False
+        aspect = max(w, h) / max(min(w, h), 1)
+        if aspect > 8:
+            return False   # extreme banner/divider shape
+        return True
+
+Also filter by file size after saving — images under ~3KB are usually
+low-detail decorators. You can check len(img_bytes) < 3000 before saving.
+
+Me:
+ok and i need to generate captions for each extracted image. some images have a
+caption text right below them in the pdf. how do i capture that
+
+Claude:
+After extracting an image, check the text near that image's bounding box on the page.
+pymupdf lets you get text blocks with their coordinates:
+
+    def get_caption_near_image(page, img_rect, search_margin: int = 60) -> str:
+        # Look for text below the image bounding box
+        below_rect = fitz.Rect(
+            img_rect.x0,
+            img_rect.y1,
+            img_rect.x1,
+            img_rect.y1 + search_margin
+        )
+        text = page.get_text("text", clip=below_rect).strip()
+        return text if len(text) > 5 else ""
+
+This checks a 60-pixel strip below the image for caption text. Adjust
+search_margin if your plates have wider spacing. Also check above the image
+(some codex plates have titles above, captions below).
+
+Me:
+for images that dont have any nearby caption text, can we auto generate one from
+the filename and document context
+
+Claude:
+Yes — build a descriptive caption from what you know:
+
+    def generate_fallback_caption(
+        filename: str,
+        document_name: str,
+        page_num: int,
+        entity_name: str = ""
+    ) -> str:
+        base = Path(filename).stem.replace("_", " ").title()
+        if entity_name:
+            return f"Figure plate: {entity_name} — extracted from {document_name}, page {page_num}"
+        return f"Figure plate from {document_name}, page {page_num}"
+
+For your codex plates you know the entity they belong to from the filename
+(e.g. plate_01_location_emberdeep.png → entity is "Emberdeep"). Parse that
+out and use it in the caption. A structured caption like
+"Figure Plate: Emberdeep Recorded Garrison Strength (1,114 souls under arms)"
+is much better than a generic one for retrieval.
+
+
+--------------------------------------------------------------------------------
+Building Image-Caption Chunks for the Vector Store
+--------------------------------------------------------------------------------
+
+Me:
+so each extracted image needs to become a chunk in chromadb. whats the structure
+that chunk should have so the retriever can find it and the UI can display it
+
+Claude:
+The image-caption chunk needs to contain a descriptive text for embedding
+(since ChromaDB can't embed the image itself), plus a media_path so the
+UI knows where to find the image file:
+
+    chunk = {
+        "chunk_id": "plate_01_location_emberdeep",
+        "document_name": "codex_vaeloria",
+        "document_type": "pdf",
+        "page_number": 4,
+        "section_title": "Location Plates — Garrisons",
+        "modality": "image-caption",
+        "content": "Official Codex Vaeloria figure plate for Emberdeep showing Recorded Garrison Strength: 1,114 souls under arms. Comparison standards: Old Imperial minimum (800), Border-march standard (2,400), Great Keep standard (6,000).",
+        "caption": "Figure Plate: Emberdeep Recorded Garrison Strength (1,114 souls under arms)",
+        "media_path": "data/extracted_media/figures/plate_01_location_emberdeep.png",
+        "source_reliability": "official_codex",
+        "entities": ["Emberdeep", "Codex Vaeloria", "Garrison Strength"]
+    }
+
+The content field is what gets embedded and retrieved. Make it rich and
+descriptive — include the entity name, type of plate, any numbers or stats
+visible in the figure. The richer the text, the better the retrieval.
+
+Me:
+we have hardcoded descriptions for specific known codex plates since we know exactly
+what they contain. is it ok to hardcode those or should everything be auto-generated
+
+Claude:
+Hardcode the known plates — that's actually the right call for a competition.
+Auto-generated captions from nearby text will be noisy and incomplete.
+For the plates you know (garrison strength, attunement costs, weapon binding,
+creature threat ratings, heraldry), manually curated descriptions are far
+more accurate and will score better:
+
+    KNOWN_CODEX_PLATES = {
+        "plate_01_location_emberdeep": {
+            "title": "Emberdeep — Recorded Garrison Strength Plate",
+            "entity": "Emberdeep",
+            "content": "Official Codex Vaeloria figure plate for Emberdeep showing Recorded Garrison Strength: 1,114 souls under arms. Comparison standards: Old Imperial minimum (800), Border-march standard (2,400), Great Keep standard (6,000). Measured in souls under arms.",
+            "caption": "Figure Plate: Emberdeep Recorded Garrison Strength (1,114 souls under arms)",
+        },
+        "plate_04_artifact_the_thrice_bound_edge": {
+            "title": "The Thrice-Bound Edge — Attunement Cost Plate",
+            "entity": "The Thrice-Bound Edge",
+            "content": "Official Codex Vaeloria figure plate for The Thrice-Bound Edge. Attunement cost: 3 Shards of Will. Classification: Bound Relic.",
+            "caption": "Figure Plate: The Thrice-Bound Edge — Attunement Cost (3 Shards of Will)",
+        },
+        # ... etc
+    }
+
+Look up the plate key in this dict first. Fall back to auto-generation only
+for images not in this table.
+
+Me:
+how do i match an extracted image to the right entry in that dict. the filenames
+wont always match exactly
+
+Claude:
+Use the codex plate key as the actual saved filename — control the naming when
+you save the extracted image:
+
+    def save_plate_image(img_bytes: bytes, plate_key: str, output_dir: str) -> str:
+        ext = "png"
+        filename = f"{plate_key}.png"
+        out_path = os.path.join(output_dir, filename)
+        with open(out_path, "wb") as f:
+            f.write(img_bytes)
+        return out_path
+
+When you detect a known plate (by matching surrounding text or page number),
+save it with the plate_key as the filename. Then lookup in KNOWN_CODEX_PLATES
+is a direct dict key access — no fuzzy matching needed.
+
+For unknown images that aren't in the known plates dict, use the auto-generated
+name (page{n}_img{n}.png) and the fallback caption.
+
+
+--------------------------------------------------------------------------------
+Table Extraction and Markdown Conversion
+--------------------------------------------------------------------------------
+
+Me:
+for the tables inside the pdfs and docx files, how do we extract them properly.
+pdfplumber was suggested but some tables dont have visible borders
+
+Claude:
+pdfplumber is solid for lattice tables (visible borders). For borderless tables,
+try camelot with stream flavor:
+
+    import camelot
+
+    def extract_tables_from_pdf(pdf_path: str, pages: str = "all") -> list[str]:
+        md_tables = []
+
+        # Try lattice first (bordered tables)
+        try:
+            tables = camelot.read_pdf(str(pdf_path), pages=pages, flavor="lattice")
+            for table in tables:
+                if table.parsing_report["accuracy"] > 70:
+                    md_tables.append(table.df.to_markdown(index=False))
+        except Exception:
+            pass
+
+        # Fall back to stream for borderless
+        if not md_tables:
+            try:
+                tables = camelot.read_pdf(str(pdf_path), pages=pages, flavor="stream")
+                for table in tables:
+                    md_tables.append(table.df.to_markdown(index=False))
+            except Exception:
+                pass
+
+        return md_tables
+
+Converting to markdown with table.df.to_markdown(index=False) is the right
+move — GitHub markdown tables are readable as plain text for embedding AND
+render beautifully in Streamlit.
+
+Me:
+for docx tables, how do we get them out with python-docx
+
+Claude:
+python-docx exposes tables through doc.tables — each table has rows and cells:
+
+    from docx import Document
+
+    def extract_tables_from_docx(filepath: Path) -> list[str]:
+        doc = Document(str(filepath))
+        md_tables = []
+
+        for table in doc.tables:
+            rows = []
+            for i, row in enumerate(table.rows):
+                cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                rows.append("| " + " | ".join(cells) + " |")
+                if i == 0:
+                    # Add markdown header separator after first row
+                    separator = "| " + " | ".join(["---"] * len(cells)) + " |"
+                    rows.append(separator)
+
+            if rows:
+                md_tables.append("\n".join(rows))
+
+        return md_tables
+
+Clean cell text by stripping newlines (multi-line cells break markdown tables).
+
+Me:
+each extracted table should also be a chunk right. whats the chunk structure for tables
+
+Claude:
+Same pattern as image chunks but modality is "table":
+
+    chunk = {
+        "chunk_id": "table_codex_vaeloria_p7_t1",
+        "document_name": "codex_vaeloria",
+        "page_number": 7,
+        "section_title": "Weapon Classification Tables",
+        "modality": "table",
+        "content": "| Weapon | Type | Attunement Cost |\n|---|---|---|\n| Thrice-Bound Edge | Bound Relic | 3 Shards of Will |",
+        "caption": "Table: Weapon Classification — Codex Vaeloria, Page 7",
+        "media_path": "",
+        "source_reliability": "official_codex"
+    }
+
+Set media_path to empty string for tables — the content itself IS the renderable
+markdown. The UI checks modality == "table" and renders the content with
+st.markdown() which renders GitHub markdown tables natively.
+
+Me:
+we need to track how many media assets we extracted total. whats a clean way
+to keep count across the pipeline run
+
+Claude:
+Return a summary dict from your extraction function:
+
+    def extract_all_media(corpus_dir: str, output_dir: str) -> dict:
+        summary = {
+            "images_extracted": 0,
+            "tables_extracted": 0,
+            "captions_generated": 0,
+            "known_plates_matched": 0
+        }
+        # ... extraction logic, increment counters ...
+        return summary
+
+Print it at the end of the pipeline run. Useful for your submission report —
+you can cite "86 media assets extracted" with confidence if you tracked it.
+
+================================================================================
+END OF LOG — P2 (M. M. M. Shakeer)
+================================================================================

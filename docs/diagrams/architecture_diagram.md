@@ -2,6 +2,10 @@
 
 This document contains visual diagrams for DeepThink's multimodal ingestion, compound retrieval, and grounded generation architecture for **Sub-track 1A: Rich Answers, Not Just Text**.
 
+## Rendered Architecture Diagram
+
+![DeepThink System Architecture](system_architecture.png)
+
 ---
 
 ## 1. End-to-End System Sequence Diagram (Compound RAG 3.0)

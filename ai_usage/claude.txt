@@ -1,109 +1,1996 @@
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
 ================================================================================
-SLIIT CODEFEST 2026 AI COMPETITION — AI CHAT HISTORY & INTERACTION LOGS
-Team: DeepThink
-Sub-track: 1A — Rich Answers, Not Just Text
-Corpus: The Ashen Era Archive
+
+================================================================================
+Claude Chat Log — Member P1: Fatheen M. F. A.
+Role: Document Parsing & OCR Lead
+Coverage: Multi-format ingestion pipeline, Tesseract OCR, hierarchical chunking,
+          source reliability classification, scanned PDF handling
+SLIIT Codefest 2026 — DeepThink Project
 ================================================================================
 
-In accordance with Section 4.1 (AI Usage Policy) and Section 5.2 of the Challenge
-Document, this file provides the plain-text exported conversation logs with AI agents
-(Claude 3.7, Antigravity) used during development.
 
 --------------------------------------------------------------------------------
-Session Log 1: Architecture & Team Workflow Planning
-Date: 2026-08-29
-Assistant: Claude 3.7 / Antigravity
-Participants: P1, P2, P3, P4
-Summary: Established 4-member roles, modular ownership, chunks.json schema contract,
-and modality-aware retrieval design choice for Sub-track 1A.
+Getting the Ingestion Pipeline Started
+--------------------------------------------------------------------------------
 
-[Human]: We are competing in SLIIT Codefest 2026 AI Competition. We have selected
-Sub-track 1A (Rich Answers, Not Just Text) on the Ashen Era Archive. We have 4
-members. How should we divide the work, design the architecture, and structure our milestones?
+Me:
+ok so i need to write a ingestion pipeline for our project. we have 415 documents in
+different formats like pdf docx markdown txt and some scanned pdfs too. how do i
+structure this without making seperate scripts for each format type
 
-[AI]: Here is a structured team execution plan...
-- P1: Document Parsing & OCR Lead (chunks.json contract)
-- P2: Visual & Table Extraction Lead (image/table assets & metadata)
-- P3: Retrieval & Ranking Lead (Local BGE + Modality-aware vector search)
-- P4: Generation & Evaluation Lead (Grounded prompting + inline figure embedding)
-...
+Claude:
+Best approach is a single dispatcher function that routes based on file extension.
+You detect the format, call the right parser, and everything returns the same
+chunk structure:
+
+    from pathlib import Path
+
+    def parse_document(filepath: Path) -> list[dict]:
+        ext = filepath.suffix.lower()
+        if ext == ".pdf":
+            return parse_pdf(filepath)
+        elif ext in (".docx", ".doc"):
+            return parse_docx(filepath)
+        elif ext == ".md":
+            return parse_markdown(filepath)
+        elif ext == ".txt":
+            return parse_text(filepath)
+        else:
+            raise ValueError(f"Unsupported format: {ext}")
+
+One dispatcher, each parser is its own function. Each returns the same list[dict]
+structure so downstream code doesn't need to know which format it came from.
+
+Me:
+for pdfs specifically, some of them are scanned so pdfminer cant read them. how do
+i handle that automatically like without the user having to specify which ones are scans
+
+Claude:
+Check per page, not per document — some PDFs mix scanned and text pages.
+Use pymupdf to extract text and check the character count:
+
+    def is_scanned_page(page, min_char_count: int = 40) -> bool:
+        try:
+            text = page.get_text("text").strip()
+            if len(text) >= min_char_count:
+                return False
+            images = page.get_images()
+            return len(images) > 0 or len(text) == 0
+        except Exception:
+            return False
+
+If a page has fewer than 40 characters but has embedded images, treat it as
+scanned and run OCR on it. 40 is a conservative threshold — you can tune it.
+
+Me:
+and also for the filenames of scanned pdfs, some have "scan" in the name. should
+i detect that too or just rely on the page level check
+
+Claude:
+Both. Do a filename check first as a fast path — if the name contains "scan" or
+has the ".scan.pdf" pattern, treat the whole document as scanned from the start
+and skip the per-page text extraction attempt:
+
+    def detect_document_type(file_path: Path) -> str:
+        name = file_path.name.lower()
+        if ".scan.pdf" in name or "_scan" in name or "scan" in name:
+            return "scan"
+        ext = file_path.suffix.lower()
+        if ext == ".pdf":
+            return "pdf"
+        elif ext == ".docx":
+            return "docx"
+        elif ext == ".md":
+            return "md"
+        return "txt"
+
+For documents where the type is "scan", skip the text extraction entirely and
+go straight to OCR on all pages. For type "pdf", still do the per-page check
+because they might be hybrid.
+
+Me:
+makes sense. how do i detect document type separate from the file extension check
+since some files might have wrong extensions
+
+Claude:
+For a hackathon with a known corpus, extension-based detection is fine — don't
+over-engineer it. But if you want a fallback, python-magic reads the actual file
+header bytes:
+
+    import magic
+    mime = magic.from_file(str(filepath), mime=True)
+
+That gives you "application/pdf", "application/vnd.openxmlformats..." etc.
+Only add this if you actually see extension mismatches in your corpus.
+For the Ashen Era Archive with 415 files of known provenance, the extension
+check is reliable enough.
+
 
 --------------------------------------------------------------------------------
-Session Log 2: Ingestion & Modality Contract Design
-Date: 2026-08-29
-Assistant: Claude 3.7 / Antigravity
-Participants: P1 (Ingestion Lead)
-Summary: Designed the multimodal schema distinguishing 'text', 'table', and
-'image-caption' chunks with direct linking to extracted files in data/extracted_media/.
+Chunk IDs and Metadata Design
+--------------------------------------------------------------------------------
+
+Me:
+for chunk ids should i use uuid4 or some kind of deterministic slug. the problem with
+uuid is every time we rerun the pipeline we get new ids and chromadb accumulates
+duplicates
+
+Claude:
+Use a deterministic slug. UUIDs break idempotency — reruns create duplicates.
+Build the ID from source filename + page + chunk index:
+
+    import re
+    from pathlib import Path
+
+    def sanitize_id(text: str) -> str:
+        text = text.lower()
+        text = re.sub(r'[^a-z0-9_]+', '_', text)
+        text = re.sub(r'_+', '_', text).strip('_')
+        return text[:60] if text else "chunk"
+
+    def make_chunk_id(filepath: Path, page: int, chunk_idx: int) -> str:
+        base = sanitize_id(filepath.stem)
+        return f"{base}_p{page}_c{chunk_idx}"
+
+Result: "codex_vaeloria_weapons_p4_c2" — human-readable, stable across reruns.
+Use get_or_create_collection in ChromaDB and it won't insert duplicates.
+
+Me:
+also we need to assign reliability tiers to chunks based on which folder they come
+from. codex docs are authoritative, wiki is secondary, chronicles are narrative,
+ephemera stuff is unreliable. how do we classify this automatically from the path
+
+Claude:
+Path-based heuristics work perfectly for your corpus structure.
+Map folder names and filename patterns to reliability tiers:
+
+    def assign_source_reliability(file_path: Path) -> str:
+        path_str = str(file_path).lower()
+        name_str = file_path.stem.lower()
+
+        if "codex" in path_str or "annals" in name_str:
+            return "official_codex"
+        elif "wiki" in path_str:
+            return "wiki"
+        elif "chronicles" in path_str:
+            return "novel"
+        elif "trial" in name_str or "court_martial" in name_str:
+            return "ephemera_trial"
+        elif "ballad" in name_str or "tavern" in name_str or "song" in name_str:
+            return "ephemera_tavern"
+        elif "ledger" in name_str or "manifest" in name_str:
+            return "ephemera_ledger"
+        elif "letter" in name_str or "dispatch" in name_str:
+            return "ephemera_letter"
+        elif "catalogue" in name_str or "auction" in name_str:
+            return "ephemera_catalogue"
+        elif "ephemera" in path_str:
+            return "ephemera"
+        return "unknown"
+
+Store this as a string in chunk metadata. The reranker will apply a numeric
+multiplier (1.10 for official_codex, down to 0.85 for ephemera_tavern) at
+query time. Don't embed the number in the metadata — keep it in the scoring logic.
+
 
 --------------------------------------------------------------------------------
-Session Log 3: Groq LPU Acceleration & Local BGE Embeddings
-Date: 2026-09-01
-Assistant: Claude 3.7 / Antigravity
-Participants: P3, P4
-Summary: Replaced cloud embedding dependencies with BAAI/bge-small-en-v1.5 in local
-ChromaDB. Integrated Groq Cloud LPU (openai/gpt-oss-120b), cutting latency from 8.5s
-to 1.35s at 300+ tokens/sec.
+Hierarchical Chunking Strategy
+--------------------------------------------------------------------------------
 
-[Human]: Shared free-tier aggregators are hitting rate limits during multi-hop
-benchmarks. Can we make embeddings 100% local and accelerate inference to under 2 seconds?
+Me:
+for chunking the text after parsing, whats the best chunk size. we tried 500 tokens
+but some answers span across chunk boundaries
 
-[AI]: Yes. We can run BAAI/bge-small-en-v1.5 locally via SentenceTransformers in
-ChromaDB with zero network calls, and point our OpenAI-compatible client to Groq LPU
-endpoints using openai/gpt-oss-120b for 300+ tokens/sec.
+Claude:
+The boundary problem is real. Two fixes:
+
+1. Chunk by section first (use headers as natural break points), then
+   split oversized sections by character limit as a fallback.
+
+2. Add overlap — when you split a section into multiple chunks,
+   carry the last N characters of the previous chunk into the next one:
+
+    CHUNK_SIZE = 800       # characters
+    CHUNK_OVERLAP = 150    # characters
+
+    def split_with_overlap(text: str, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP) -> list[str]:
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + size
+            chunks.append(text[start:end])
+            start = end - overlap
+        return chunks
+
+800 chars / 150 overlap works well for lore documents with mixed-length paragraphs.
+The overlap ensures that an answer straddling two chunks is fully captured in
+at least one of them.
+
+Me:
+for markdown files the headers are natural section boundaries. how do i split on
+those cleanly
+
+Claude:
+Use regex to find all heading markers and split on them:
+
+    import re
+
+    def chunk_markdown_by_section(text: str) -> list[dict]:
+        # Split on H1, H2, H3 headings
+        pattern = r'(?=^#{1,3}\s)', flags=re.MULTILINE
+        sections = re.split(pattern, text, flags=re.MULTILINE)
+
+        chunks = []
+        for section in sections:
+            section = section.strip()
+            if not section:
+                continue
+            # Extract heading as section_title
+            lines = section.split('\n', 1)
+            title = lines[0].lstrip('#').strip()
+            body = lines[1].strip() if len(lines) > 1 else ""
+            chunks.append({"section_title": title, "content": body})
+
+        return chunks
+
+This gives you clean section_title metadata on every chunk, which is gold
+for your reranker — it can match query keywords against section titles with
+a bonus score.
+
+Me:
+and for docx files, how do we extract the section structure. paragraphs dont have
+header markers the same way markdown does
+
+Claude:
+python-docx exposes paragraph styles. Headings have styles like "Heading 1",
+"Heading 2" etc:
+
+    from docx import Document
+
+    def parse_docx(filepath: Path) -> list[dict]:
+        doc = Document(str(filepath))
+        sections = []
+        current_section = {"title": "", "content": []}
+
+        for para in doc.paragraphs:
+            style = para.style.name.lower()
+            if "heading" in style:
+                if current_section["content"]:
+                    sections.append(current_section)
+                current_section = {"title": para.text.strip(), "content": []}
+            else:
+                if para.text.strip():
+                    current_section["content"].append(para.text.strip())
+
+        if current_section["content"]:
+            sections.append(current_section)
+
+        return [
+            {"section_title": s["title"], "content": "\n".join(s["content"])}
+            for s in sections
+        ]
+
+If the DOCX has no heading styles (flat formatting), fall back to paragraph-based
+chunking with overlap. Check len(sections) after parsing — if it's 1 or 0,
+the document has no styled headings and you need the fallback.
+
 
 --------------------------------------------------------------------------------
-Session Log 4: Compound RAG 3.0 & Character Dossier Boosts
-Date: 2026-09-02
-Assistant: Claude 3.7 / Antigravity
-Participants: P3 (Retrieval Lead)
-Summary: Debugged multi-hop relational retrieval failures (e.g. Brannoc Ironmere
-relationship to the Bleeding Crown). Added sub-query preservation, Primary Character
-Dossier boost (+0.35), and Multi-Entity intersection boost (+0.40).
+OCR Engine — Tesseract and Image Preprocessing
+--------------------------------------------------------------------------------
 
-[Human]: The issue is retrieval failure: for relational questions like "difference
-between Brannoc Ironmere's membership and relationship to the Bleeding Crown", the
-query decomposer stripped the relational phrasing and the retriever missed the
-unacknowledged heir chunk. How do we fix this?
+Me:
+we installed tesseract but pytesseract cant find it. how do we make the path detection
+work on both mac and windows without hardcoding
 
-[AI]: We will preserve the full relational query in sub_queries[0] and inject
-dedicated bonuses in compute_cross_relevance: +0.35 when chunk matches the subject
-biography dossier and +0.40 when both the character and faction are present.
+Claude:
+Use shutil.which first (respects PATH), then check common install locations:
+
+    import shutil, os
+    from pathlib import Path
+
+    COMMON_TESSERACT_PATHS = [
+        os.getenv("TESSERACT_CMD", ""),
+        os.getenv("TESSERACT_PATH", ""),
+        "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+        "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
+        "/usr/bin/tesseract",
+        "/usr/local/bin/tesseract",
+        "/opt/homebrew/bin/tesseract",
+    ]
+
+    def find_tesseract_binary() -> str | None:
+        which_cmd = shutil.which("tesseract")
+        if which_cmd and os.path.isfile(which_cmd):
+            return which_cmd
+        for candidate in COMMON_TESSERACT_PATHS:
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        return None
+
+Then on init:
+    cmd = find_tesseract_binary()
+    if cmd:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+
+Also add TESSERACT_CMD to .env.example so teammates can override it
+without touching code.
+
+Me:
+the ocr on dark or blurry pages is terrible. just getting random characters.
+what preprocessing should we apply
+
+Claude:
+For degraded historical document scans, this preprocessing pipeline works well:
+
+1. Grayscale conversion
+2. Upscale to at least 1000px wide (low DPI kills OCR)
+3. Contrast enhancement
+4. Sharpening
+5. Binarization — threshold out the parchment/paper background color
+
+    from PIL import Image, ImageEnhance, ImageFilter
+
+    def preprocess_image_for_ocr(
+        image_input,
+        contrast_factor: float = 1.8,
+        upscale_min_width: int = 1000,
+        binarize_threshold: int = 140
+    ) -> Image.Image:
+        if isinstance(image_input, (str, Path)):
+            img = Image.open(str(image_input))
+        else:
+            img = image_input.copy()
+
+        if img.mode != "L":
+            img = img.convert("L")
+
+        width, height = img.size
+        if width < upscale_min_width:
+            scale = upscale_min_width / max(width, 1)
+            new_size = (int(width * scale), int(height * scale))
+            img = img.resize(new_size, resample=Image.Resampling.BILINEAR)
+
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(contrast_factor)
+        img = img.filter(ImageFilter.SHARPEN)
+
+        table = [0 if i < binarize_threshold else 255 for i in range(256)]
+        img = img.point(table, "1")
+
+        return img
+
+The binarize threshold of 140 removes parchment tint. Go lower (120) if text
+is getting wiped out, higher (160) if background noise is still coming through.
+
+Me:
+and how do we convert a fitz page to a PIL image to feed into that
+
+Claude:
+    pix = page.get_pixmap(dpi=150)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+Use 150 DPI for a good speed/quality balance. If OCR quality is still bad
+after preprocessing, bump to 200. Don't go below 100 — Tesseract accuracy
+tanks below that.
+
+Me:
+how do we set the psm mode. for the scanned pages some are full page layout and
+some are single column
+
+Claude:
+Pass it in the custom config string to pytesseract:
+
+    custom_config = "--oem 3 --psm 3"   # auto page layout (full page)
+    # or
+    custom_config = "--oem 3 --psm 6"   # single block of uniform text
+
+    text = pytesseract.image_to_string(processed_img, config=custom_config)
+
+--oem 3 is LSTM + legacy combined, best quality.
+--psm 3 = fully automatic page segmentation (safe default).
+--psm 6 = single uniform block — faster and more accurate for single-column pages.
+
+For your corpus, start with psm 3 across the board. If a specific document
+type (like court transcripts or ledgers) consistently has one-column layout,
+hardcode psm 6 for that document_type.
+
+Me:
+what happens if tesseract is not installed on the machine. should we crash or
+silently skip
+
+Claude:
+Silently skip and log a debug warning. Never crash the whole pipeline
+because one optional component is missing:
+
+    _TESSERACT_CHECKED = False
+    _TESSERACT_AVAILABLE = False
+
+    def init_tesseract() -> bool:
+        global _TESSERACT_CHECKED, _TESSERACT_AVAILABLE
+        if _TESSERACT_CHECKED:
+            return _TESSERACT_AVAILABLE
+
+        cmd = find_tesseract_binary()
+        if cmd:
+            try:
+                import pytesseract
+                pytesseract.pytesseract.tesseract_cmd = cmd
+                _TESSERACT_AVAILABLE = True
+            except ImportError:
+                _TESSERACT_AVAILABLE = False
+        else:
+            _TESSERACT_AVAILABLE = False
+
+        _TESSERACT_CHECKED = True
+        if not _TESSERACT_AVAILABLE:
+            logger.debug("Tesseract not found — falling back to embedded text extraction.")
+        return _TESSERACT_AVAILABLE
+
+    def run_ocr_on_image(image_input, psm: int = 3) -> str:
+        if not init_tesseract():
+            return ""   # graceful empty string, not a crash
+        ...
+
+The caller gets an empty string back. The pipeline stores it as a chunk with
+empty content, which the retriever will naturally rank last. No exception, no crash.
+
+================================================================================
+END OF LOG — P1 (Fatheen M. F. A.)
+================================================================================
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P2: M. M. M. Shakeer
+Role: Visual & Table Extraction Lead
+Coverage: Figure plate extraction from PDFs, image captioning, media metadata,
+          table extraction and markdown conversion, codex plate chunk design
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
 
 --------------------------------------------------------------------------------
-Session Log 5: Strict Epistemic Restraint & Adaptive Budgeting
-Date: 2026-09-02
-Assistant: Claude 3.7 / Antigravity
-Participants: P3, P4
-Summary: Human lead critiqued LLM output on the Purge of Blackport for inventing
-ungrounded narrative framing. Enforced Directive 5 strict non-extrapolation prompting
-and implemented 3-stage adaptive budgeting (K=1..8, Elbow drop-off alpha=0.60, 2,500 token packing).
+Extracting Figure Plates from PDFs
+--------------------------------------------------------------------------------
 
-[Human]: This verification is not 100% accurate. The archive does not explicitly explain
-that the discrepancy exists because of "divergent narrative framing". Never interpolate
-motives or speculative reasons. State what is recorded verbatim and admit the archive
-provides no reconciliation. Also, remove the manual Top-K sliders from the UI—the
-system must be autonomous.
+Me:
+so my job is to extract all the images and figure plates from our pdf corpus and store
+them properly. how do i do this with pymupdf because some pdfs have embedded images
+and some have images that are part of the page render
 
-[AI]: Understood. Updating Directive 5 in GROUNDED_SYSTEM_PROMPT to enforce strict
-epistemic restraint. Adding 3-stage adaptive budgeting (intent sizing, Elbow drop-off,
-token packing) and removing manual sliders from Streamlit.
+Claude:
+pymupdf handles both. For embedded images (stored in the PDF's XObject table),
+use get_images() + extract_image():
+
+    import fitz
+    from PIL import Image
+    import io
+
+    def extract_images_from_pdf(pdf_path: str, output_dir: str) -> list[dict]:
+        doc = fitz.open(pdf_path)
+        extracted = []
+
+        for page_num, page in enumerate(doc):
+            for img_index, img in enumerate(page.get_images(full=True)):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                img_bytes = base_image["image"]
+                ext = base_image["ext"]
+
+                pil_img = Image.open(io.BytesIO(img_bytes))
+                w, h = pil_img.size
+
+                # skip tiny decorators and icons
+                if w < 100 or h < 100:
+                    continue
+
+                filename = f"page{page_num+1}_img{img_index+1}.{ext}"
+                out_path = os.path.join(output_dir, filename)
+                with open(out_path, "wb") as f:
+                    f.write(img_bytes)
+
+                extracted.append({
+                    "page": page_num + 1,
+                    "path": out_path,
+                    "width": w,
+                    "height": h
+                })
+
+        return extracted
+
+For images that are rendered as page content (not embedded), render the whole
+page to an image with page.get_pixmap() and save that. Those are usually the
+full-page plates you want to keep anyway.
+
+Me:
+some of the images are coming out very small like 20x20 pixels and they are clearly
+just borders or bullet decorators. how do i filter them out properly
+
+Claude:
+The 100x100 pixel filter catches most of them. But also check aspect ratio —
+legitimate figure plates are generally close to square or landscape. Extreme
+aspect ratios (very tall and thin, or very wide and flat) are usually decorative
+dividers:
+
+    def is_meaningful_image(pil_img: Image.Image) -> bool:
+        w, h = pil_img.size
+        if w < 100 or h < 100:
+            return False
+        aspect = max(w, h) / max(min(w, h), 1)
+        if aspect > 8:
+            return False   # extreme banner/divider shape
+        return True
+
+Also filter by file size after saving — images under ~3KB are usually
+low-detail decorators. You can check len(img_bytes) < 3000 before saving.
+
+Me:
+ok and i need to generate captions for each extracted image. some images have a
+caption text right below them in the pdf. how do i capture that
+
+Claude:
+After extracting an image, check the text near that image's bounding box on the page.
+pymupdf lets you get text blocks with their coordinates:
+
+    def get_caption_near_image(page, img_rect, search_margin: int = 60) -> str:
+        # Look for text below the image bounding box
+        below_rect = fitz.Rect(
+            img_rect.x0,
+            img_rect.y1,
+            img_rect.x1,
+            img_rect.y1 + search_margin
+        )
+        text = page.get_text("text", clip=below_rect).strip()
+        return text if len(text) > 5 else ""
+
+This checks a 60-pixel strip below the image for caption text. Adjust
+search_margin if your plates have wider spacing. Also check above the image
+(some codex plates have titles above, captions below).
+
+Me:
+for images that dont have any nearby caption text, can we auto generate one from
+the filename and document context
+
+Claude:
+Yes — build a descriptive caption from what you know:
+
+    def generate_fallback_caption(
+        filename: str,
+        document_name: str,
+        page_num: int,
+        entity_name: str = ""
+    ) -> str:
+        base = Path(filename).stem.replace("_", " ").title()
+        if entity_name:
+            return f"Figure plate: {entity_name} — extracted from {document_name}, page {page_num}"
+        return f"Figure plate from {document_name}, page {page_num}"
+
+For your codex plates you know the entity they belong to from the filename
+(e.g. plate_01_location_emberdeep.png → entity is "Emberdeep"). Parse that
+out and use it in the caption. A structured caption like
+"Figure Plate: Emberdeep Recorded Garrison Strength (1,114 souls under arms)"
+is much better than a generic one for retrieval.
+
 
 --------------------------------------------------------------------------------
-Session Log 6: Categorized Out-of-Scope Guardrails & Final Hardening
-Date: 2026-09-03
-Assistant: Claude 3.7 / Antigravity
-Participants: P3, P4
-Summary: Added 4 categorized out-of-scope fast-path refusal options (Real-world,
-Inappropriate/slurs, Physical sensors, Universal OOD), suppressed chunk inspect
-expander on refusals, and verified all 75 test suites.
+Building Image-Caption Chunks for the Vector Store
+--------------------------------------------------------------------------------
 
-[Human]: Instead of giving the same generic refusal for "who is hitler" and slurs like
-"poda venna", can we have distinct options for out-of-scope queries with helpful archival
-suggestions, and suppress the chunk inspector?
+Me:
+so each extracted image needs to become a chunk in chromadb. whats the structure
+that chunk should have so the retriever can find it and the UI can display it
 
-[AI]: Implemented 4 categorized refusal buckets in router.py with 3 tailored
-exploration options each, wired UNIVERSAL_OOD_REFUSAL to CRAG, and suppressed the
-context expander in app.py when queries are rejected.
+Claude:
+The image-caption chunk needs to contain a descriptive text for embedding
+(since ChromaDB can't embed the image itself), plus a media_path so the
+UI knows where to find the image file:
 
+    chunk = {
+        "chunk_id": "plate_01_location_emberdeep",
+        "document_name": "codex_vaeloria",
+        "document_type": "pdf",
+        "page_number": 4,
+        "section_title": "Location Plates — Garrisons",
+        "modality": "image-caption",
+        "content": "Official Codex Vaeloria figure plate for Emberdeep showing Recorded Garrison Strength: 1,114 souls under arms. Comparison standards: Old Imperial minimum (800), Border-march standard (2,400), Great Keep standard (6,000).",
+        "caption": "Figure Plate: Emberdeep Recorded Garrison Strength (1,114 souls under arms)",
+        "media_path": "data/extracted_media/figures/plate_01_location_emberdeep.png",
+        "source_reliability": "official_codex",
+        "entities": ["Emberdeep", "Codex Vaeloria", "Garrison Strength"]
+    }
+
+The content field is what gets embedded and retrieved. Make it rich and
+descriptive — include the entity name, type of plate, any numbers or stats
+visible in the figure. The richer the text, the better the retrieval.
+
+Me:
+we have hardcoded descriptions for specific known codex plates since we know exactly
+what they contain. is it ok to hardcode those or should everything be auto-generated
+
+Claude:
+Hardcode the known plates — that's actually the right call for a competition.
+Auto-generated captions from nearby text will be noisy and incomplete.
+For the plates you know (garrison strength, attunement costs, weapon binding,
+creature threat ratings, heraldry), manually curated descriptions are far
+more accurate and will score better:
+
+    KNOWN_CODEX_PLATES = {
+        "plate_01_location_emberdeep": {
+            "title": "Emberdeep — Recorded Garrison Strength Plate",
+            "entity": "Emberdeep",
+            "content": "Official Codex Vaeloria figure plate for Emberdeep showing Recorded Garrison Strength: 1,114 souls under arms. Comparison standards: Old Imperial minimum (800), Border-march standard (2,400), Great Keep standard (6,000). Measured in souls under arms.",
+            "caption": "Figure Plate: Emberdeep Recorded Garrison Strength (1,114 souls under arms)",
+        },
+        "plate_04_artifact_the_thrice_bound_edge": {
+            "title": "The Thrice-Bound Edge — Attunement Cost Plate",
+            "entity": "The Thrice-Bound Edge",
+            "content": "Official Codex Vaeloria figure plate for The Thrice-Bound Edge. Attunement cost: 3 Shards of Will. Classification: Bound Relic.",
+            "caption": "Figure Plate: The Thrice-Bound Edge — Attunement Cost (3 Shards of Will)",
+        },
+        # ... etc
+    }
+
+Look up the plate key in this dict first. Fall back to auto-generation only
+for images not in this table.
+
+Me:
+how do i match an extracted image to the right entry in that dict. the filenames
+wont always match exactly
+
+Claude:
+Use the codex plate key as the actual saved filename — control the naming when
+you save the extracted image:
+
+    def save_plate_image(img_bytes: bytes, plate_key: str, output_dir: str) -> str:
+        ext = "png"
+        filename = f"{plate_key}.png"
+        out_path = os.path.join(output_dir, filename)
+        with open(out_path, "wb") as f:
+            f.write(img_bytes)
+        return out_path
+
+When you detect a known plate (by matching surrounding text or page number),
+save it with the plate_key as the filename. Then lookup in KNOWN_CODEX_PLATES
+is a direct dict key access — no fuzzy matching needed.
+
+For unknown images that aren't in the known plates dict, use the auto-generated
+name (page{n}_img{n}.png) and the fallback caption.
+
+
+--------------------------------------------------------------------------------
+Table Extraction and Markdown Conversion
+--------------------------------------------------------------------------------
+
+Me:
+for the tables inside the pdfs and docx files, how do we extract them properly.
+pdfplumber was suggested but some tables dont have visible borders
+
+Claude:
+pdfplumber is solid for lattice tables (visible borders). For borderless tables,
+try camelot with stream flavor:
+
+    import camelot
+
+    def extract_tables_from_pdf(pdf_path: str, pages: str = "all") -> list[str]:
+        md_tables = []
+
+        # Try lattice first (bordered tables)
+        try:
+            tables = camelot.read_pdf(str(pdf_path), pages=pages, flavor="lattice")
+            for table in tables:
+                if table.parsing_report["accuracy"] > 70:
+                    md_tables.append(table.df.to_markdown(index=False))
+        except Exception:
+            pass
+
+        # Fall back to stream for borderless
+        if not md_tables:
+            try:
+                tables = camelot.read_pdf(str(pdf_path), pages=pages, flavor="stream")
+                for table in tables:
+                    md_tables.append(table.df.to_markdown(index=False))
+            except Exception:
+                pass
+
+        return md_tables
+
+Converting to markdown with table.df.to_markdown(index=False) is the right
+move — GitHub markdown tables are readable as plain text for embedding AND
+render beautifully in Streamlit.
+
+Me:
+for docx tables, how do we get them out with python-docx
+
+Claude:
+python-docx exposes tables through doc.tables — each table has rows and cells:
+
+    from docx import Document
+
+    def extract_tables_from_docx(filepath: Path) -> list[str]:
+        doc = Document(str(filepath))
+        md_tables = []
+
+        for table in doc.tables:
+            rows = []
+            for i, row in enumerate(table.rows):
+                cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                rows.append("| " + " | ".join(cells) + " |")
+                if i == 0:
+                    # Add markdown header separator after first row
+                    separator = "| " + " | ".join(["---"] * len(cells)) + " |"
+                    rows.append(separator)
+
+            if rows:
+                md_tables.append("\n".join(rows))
+
+        return md_tables
+
+Clean cell text by stripping newlines (multi-line cells break markdown tables).
+
+Me:
+each extracted table should also be a chunk right. whats the chunk structure for tables
+
+Claude:
+Same pattern as image chunks but modality is "table":
+
+    chunk = {
+        "chunk_id": "table_codex_vaeloria_p7_t1",
+        "document_name": "codex_vaeloria",
+        "page_number": 7,
+        "section_title": "Weapon Classification Tables",
+        "modality": "table",
+        "content": "| Weapon | Type | Attunement Cost |\n|---|---|---|\n| Thrice-Bound Edge | Bound Relic | 3 Shards of Will |",
+        "caption": "Table: Weapon Classification — Codex Vaeloria, Page 7",
+        "media_path": "",
+        "source_reliability": "official_codex"
+    }
+
+Set media_path to empty string for tables — the content itself IS the renderable
+markdown. The UI checks modality == "table" and renders the content with
+st.markdown() which renders GitHub markdown tables natively.
+
+Me:
+we need to track how many media assets we extracted total. whats a clean way
+to keep count across the pipeline run
+
+Claude:
+Return a summary dict from your extraction function:
+
+    def extract_all_media(corpus_dir: str, output_dir: str) -> dict:
+        summary = {
+            "images_extracted": 0,
+            "tables_extracted": 0,
+            "captions_generated": 0,
+            "known_plates_matched": 0
+        }
+        # ... extraction logic, increment counters ...
+        return summary
+
+Print it at the end of the pipeline run. Useful for your submission report —
+you can cite "86 media assets extracted" with confidence if you tracked it.
+
+================================================================================
+END OF LOG — P2 (M. M. M. Shakeer)
+================================================================================
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P3: Rasheed A. A. A.
+Role: Retrieval & Ranking Lead
+Coverage: ChromaDB vector store, BGE embeddings, compound retrieval, entity
+          extraction, cross-relevance reranking, adaptive K budgeting, elbow
+          pruning, CRAG confidence grading, query router and domain guardrail
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
+
+--------------------------------------------------------------------------------
+ChromaDB Setup and BGE Embeddings
+--------------------------------------------------------------------------------
+
+Me:
+ok so for the vector store we decided on chromadb locally. i need to set it up with
+bge-small-en-v1.5 embeddings. how do i initialise the collection properly and make
+sure it doesnt recreate everything on every run
+
+Claude:
+Use get_or_create_collection — it creates the collection on first run and
+retrieves the existing one on subsequent runs. Also use PersistentClient
+so the data survives between script runs:
+
+    import chromadb
+    from chromadb.utils import embedding_functions
+
+    def get_collection(persist_dir: str, collection_name: str = "ashen_era_chunks"):
+        client = chromadb.PersistentClient(path=persist_dir)
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name="BAAI/bge-small-en-v1.5"
+        )
+        collection = client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=ef,
+            metadata={"hnsw:space": "cosine"}
+        )
+        return collection
+
+The hnsw:space: cosine is important — BGE is trained for cosine similarity.
+Without it ChromaDB defaults to L2 distance which gives worse results for
+semantic search.
+
+Me:
+first run downloads the BGE model and takes ages. is there a way to know if the
+model is already cached before trying to load it
+
+Claude:
+sentence-transformers caches to ~/.cache/huggingface/hub/ by default.
+You can check if the cache directory exists:
+
+    from pathlib import Path
+
+    def is_model_cached(model_name: str) -> bool:
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        model_slug = model_name.replace("/", "--")
+        return any(cache_dir.glob(f"models--{model_slug}*"))
+
+But honestly for a competition project, just let it download. First run
+is a one-time cost (~133MB). After that it's instant. Document it in your
+README under prerequisites so judges know to expect it.
+
+Me:
+when i query the collection, how do i get the similarity scores back not just the
+documents. i need the scores for my reranker
+
+Claude:
+Pass include=["documents", "metadatas", "distances"] to collection.query():
+
+    results = collection.query(
+        query_texts=[query],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"]
+    )
+
+ChromaDB returns distances not similarities. For cosine space, convert:
+    similarity = 1 - distance
+
+Do this conversion when you build your chunk dicts:
+
+    chunks = []
+    for i, (doc, meta, dist) in enumerate(zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0]
+    )):
+        raw_sim = round(1.0 - float(dist), 4)
+        chunk = dict(meta)
+        chunk["content"] = doc
+        chunk["raw_similarity"] = raw_sim
+        chunk["relevance_score"] = raw_sim
+        chunks.append(chunk)
+
+raw_similarity is your base score before reranking. Store it separately
+so the CRAG verifier can use the original vector score even after reranking
+modifies relevance_score.
+
+Me:
+what if chromadb isnt indexed yet when someone runs the app. we need a fallback
+so the app doesnt just crash
+
+Claude:
+Add a fast in-memory fallback using the raw chunks.json:
+
+    def get_in_memory_chunks(chunks_path: str) -> list[dict]:
+        with open(chunks_path) as f:
+            return json.load(f)
+
+    def search_in_memory(query: str, chunks: list[dict], top_k: int = 5) -> list[dict]:
+        from sentence_transformers import SentenceTransformer, util
+        model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+
+        q_emb = model.encode(query, normalize_embeddings=True)
+        scored = []
+        for c in chunks:
+            c_emb = model.encode(c["content"], normalize_embeddings=True)
+            score = float(util.cos_sim(q_emb, c_emb))
+            scored.append((score, c))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for score, chunk in scored[:top_k]:
+            c = dict(chunk)
+            c["raw_similarity"] = round(score, 4)
+            c["relevance_score"] = round(score, 4)
+            results.append(c)
+        return results
+
+This is slower (no index, brute force) but works as a fallback.
+Check if the chroma_db directory exists and is non-empty — if not,
+automatically use the in-memory path.
+
+
+--------------------------------------------------------------------------------
+Query Router and Domain Guardrail
+--------------------------------------------------------------------------------
+
+Me:
+we need a fast-path that rejects out of scope queries before any retrieval happens.
+like if someone asks about the weather or real world stuff. how to do this without
+calling the LLM which would add latency
+
+Claude:
+Regex pattern matching on the query string. Runs in under 1ms:
+
+    import re
+
+    REAL_WORLD_PATTERNS = [
+        r"\b(weather|temperature|forecast|humidity)\b",
+        r"\b(stock|share price|crypto|bitcoin|forex)\b",
+        r"\b(news|headline|breaking|today's)\b",
+        r"\b(recipe|cook|ingredient|calories)\b",
+        r"\b(who is the president|prime minister|capital of|population of)\b",
+        r"\b(python|javascript|sql|html|css|programming)\b",
+    ]
+
+    GREETING_PATTERNS = [
+        r"^\s*(hi|hello|hey|good morning|good evening|howdy|greetings)\s*[!.,]?\s*$",
+    ]
+
+    FAREWELL_PATTERNS = [
+        r"^\s*(bye|goodbye|see you|thanks|thank you|cheers)\s*[!.,]?\s*$",
+    ]
+
+    def check_query_domain_scope(query: str) -> dict:
+        q = query.lower().strip()
+
+        for pattern in GREETING_PATTERNS:
+            if re.search(pattern, q):
+                return {"action": "fast_path", "reason": "greeting"}
+
+        for pattern in FAREWELL_PATTERNS:
+            if re.search(pattern, q):
+                return {"action": "fast_path", "reason": "farewell"}
+
+        for pattern in REAL_WORLD_PATTERNS:
+            if re.search(pattern, q):
+                return {"action": "fast_path", "reason": "real_world"}
+
+        return {"action": "proceed", "reason": "in_scope"}
+
+Return predefined response strings for each fast_path reason — no LLM call,
+no ChromaDB query. Whole router takes microseconds.
+
+Me:
+also need to detect inappropriate language. we have some offensive words in
+multiple languages since this might be used in sri lanka
+
+Claude:
+Add language-specific offensive pattern lists. For Sinhala/Tamil romanization
+and English:
+
+    INAPPROPRIATE_PATTERNS = [
+        # English
+        r"\b(fuck|shit|ass|bitch|bastard|damn|crap)\b",
+        # Sinhala romanized
+        r"\b(poda|venna|beragaya|hora)\b",
+        # Tamil romanized
+        r"\b(thevidiya|panni|sunni|poolu)\b",
+    ]
+
+Keep these patterns in a config file or module-level constant so teammates
+can extend the list without modifying core logic. Check INAPPROPRIATE_PATTERNS
+before REAL_WORLD_PATTERNS in your router — inappropriate queries should get
+a different refusal message than out-of-scope ones.
+
+Me:
+for the refusal messages, should we give generic ones or something specific with
+examples of what they can ask
+
+Claude:
+Specific with examples — much better UX. Generic refusals feel like dead ends.
+Three suggested questions gives the user an immediate path forward:
+
+    REAL_WORLD_REFUSAL = (
+        "I am DeepThink, specialized exclusively in analyzing The Ashen Era Archive. "
+        "Real-world subjects fall outside the scope of this repository.\n\n"
+        "Here are 3 archival topics you can explore instead:\n"
+        "1. Conflict Chronicles: 'What caused the Purge of Blackport?'\n"
+        "2. Faction Heraldry: 'What is the banner emblem of House Morvain?'\n"
+        "3. Artifact Schematics: 'Show me the attunement cost of the Thrice-Bound Edge.'"
+    )
+
+Keep the refusal message short — one sentence of explanation, then the examples.
+Don't lecture or over-explain. The user wants to know what they can do next.
+
+
+--------------------------------------------------------------------------------
+Adaptive K Budgeting — Intent Classification
+--------------------------------------------------------------------------------
+
+Me:
+we want the number of chunks retrieved (k) to be dynamic based on query type.
+visual queries need k=2, comparative k=6 to 8, single fact k=2, standard k=4.
+how do we classify without calling an LLM
+
+Claude:
+Rule-based classification on the lowercased query. Check in priority order
+(visual first since those are most specific):
+
+    def determine_query_intent_and_budget(
+        query: str,
+        entities: list = None,
+        fields: list = None
+    ) -> dict:
+        q = query.lower().strip()
+
+        # Visual intent — figure plates, maps, portraits, banners
+        visual_kw = ["diagram", "blueprint", "schematic", "figure plate", "plate",
+                     "drawing", "illustration", "image", "photo", "map", "portrait",
+                     "banner", "emblem", "crest", "heraldry"]
+        if any(re.search(r"\b" + re.escape(v) + r"\b", q) for v in visual_kw):
+            return {"intent": "visual", "target_k": 2, "min_k": 1}
+
+        # Single fact — dates, names, locations
+        single_kw = ["when was", "what year", "who is", "who was", "where was",
+                     "born in", "died in"]
+        is_single = any(q.startswith(k) or k in q for k in single_kw)
+        is_not_comparative = not any(k in q for k in ["compare", "difference", "versus"])
+        if is_single and is_not_comparative:
+            return {"intent": "single_fact", "target_k": 2, "min_k": 1}
+
+        # Comparative — multiple entities or explicit compare keywords
+        ent_count = len(entities) if entities else 0
+        if ent_count >= 2 or any(k in q for k in ["compare", "versus", "vs", "difference between"]):
+            target_k = min(8, max(6, ent_count * 3))
+            return {"intent": "comparative", "target_k": target_k, "min_k": 2}
+
+        # Quantitative / aggregation
+        quant_kw = ["total", "sum", "average", "how many", "count", "aggregate", "ledger"]
+        if any(re.search(r"\b" + re.escape(k) + r"\b", q) for k in quant_kw):
+            return {"intent": "quantitative_or_multihop", "target_k": 6, "min_k": 2}
+
+        return {"intent": "standard_narrative", "target_k": 4, "min_k": 2}
+
+Entire function runs in microseconds. No model call, no API cost.
+
+
+--------------------------------------------------------------------------------
+Entity Extraction for Query Understanding
+--------------------------------------------------------------------------------
+
+Me:
+we need to extract named entities from the query so the reranker can do entity
+matching. how do we do that without spacy or an NLP model since we want to keep it fast
+
+Claude:
+Dictionary lookup against your known corpus entities. You have 415 documents
+in a known fantasy world — compile a list of all known entity names and match
+greedily from longest to shortest:
+
+    KNOWN_ENTITIES = [
+        "Ignatz Ashgrove the Oathless", "Aldous Wrenfield the Last Warden",
+        "House Morvain", "The Ashen Vanguard", "Greyfell Citadel",
+        "Thrice-Bound Edge", "Thrice-Bound Lantern", "Weeping Lurker",
+        "Cinder-Wrought Aegis", "Gauntlet of Sorrowfell", "Emberdeep",
+        # ... all entities from your corpus ...
+    ]
+
+    # Sort longest first to match multi-word names before single words
+    KNOWN_ENTITIES_SORTED = sorted(KNOWN_ENTITIES, key=len, reverse=True)
+
+    def extract_entities(query: str) -> list[str]:
+        q_lower = query.lower()
+        found = []
+        remaining = q_lower
+        for entity in KNOWN_ENTITIES_SORTED:
+            if entity.lower() in remaining:
+                found.append(entity)
+                remaining = remaining.replace(entity.lower(), "")
+        return found
+
+Fast, deterministic, no model overhead. The tradeoff is you need to maintain
+the entity list as your corpus grows — but for a fixed competition corpus
+that's fine.
+
+Me:
+what about query fields like garrison_strength, attunement_cost, founding_year.
+how do we extract those
+
+Claude:
+Same approach — keyword-to-field mapping:
+
+    KNOWN_FIELDS = {
+        "garrison_strength": ["garrison", "garrison strength", "troops", "souls under arms", "soldiers"],
+        "attunement_cost": ["attunement", "attunement cost", "shards", "shards of will", "bind cost"],
+        "founding_year": ["founded", "founding", "established", "origin year", "founded in"],
+        "threat_rating": ["threat", "threat rating", "threat classification", "danger level"],
+        "banner_emblem": ["banner", "emblem", "heraldry", "crest", "insignia", "coat of arms"],
+    }
+
+    def extract_fields(query: str) -> list[str]:
+        q_lower = query.lower()
+        found = []
+        for field, aliases in KNOWN_FIELDS.items():
+            if any(alias in q_lower for alias in aliases):
+                found.append(field)
+        return found
+
+Return field names as strings. The reranker uses these to add a bonus when
+a chunk contains field-relevant content (e.g. a chunk mentioning "garrison strength"
+gets a bonus for a garrison_strength field query).
+
+
+--------------------------------------------------------------------------------
+Cross-Relevance Reranking
+--------------------------------------------------------------------------------
+
+Me:
+for the reranker, how do we combine entity matching score, keyword coverage and
+the base vector score into one number. what weights work best
+
+Claude:
+Additive composite where entity bonuses accumulate on top of the weighted base:
+
+    def compute_cross_relevance(query: str, chunk: dict) -> float:
+        q_clean = query.lower().strip()
+        keywords = extract_meaningful_keywords(q_clean)   # strip stopwords
+        entities = extract_entities(query)
+        fields = extract_fields(query)
+
+        content = str(chunk.get("content", "")).lower()
+        doc_name = str(chunk.get("document_name", "")).lower()
+        caption = str(chunk.get("caption", "") or "").lower()
+        section = str(chunk.get("section_title", "") or "").lower()
+        full_text = f"{doc_name} {caption} {section} {content}"
+        modality = str(chunk.get("modality", "text"))
+
+        # 1. Entity bonus (additive per entity)
+        entity_bonus = 0.0
+        has_entity_hit = False
+        matched_count = 0
+        for ent in entities:
+            if ent.lower() in full_text:
+                entity_bonus += 0.50
+                has_entity_hit = True
+                matched_count += 1
+            else:
+                # Partial token match
+                toks = [t for t in ent.split() if len(t) > 3]
+                if toks and all(t.lower() in full_text for t in toks):
+                    entity_bonus += 0.35
+                    has_entity_hit = True
+                    matched_count += 1
+
+        # Multi-entity intersection bonus
+        if matched_count >= 2:
+            entity_bonus += 0.40
+
+        # 2. Dossier bonus (doc named after queried entity)
+        dossier_bonus = 0.0
+        for ent in entities:
+            ent_norm = ent.replace(" ", "_").replace("-", "_").lower()
+            doc_norm = doc_name.replace("-", "_")
+            if ent_norm in doc_norm:
+                dossier_bonus += 0.35
+                break
+
+        # 3. Field match bonus
+        field_bonus = sum(
+            0.25 for f in fields
+            if any(a in full_text for a in KNOWN_FIELDS.get(f, [f]))
+        )
+
+        # 4. Keyword coverage
+        if not keywords:
+            kw_coverage = 0.5
+        else:
+            found = sum(1 for kw in keywords if re.search(r"\b" + re.escape(kw) + r"\b", full_text))
+            kw_coverage = found / len(keywords)
+
+        # 5. Phrase bonus
+        phrase_bonus = 0.0
+        if len(keywords) >= 2:
+            phrase = " ".join(keywords[:3])
+            if phrase in content or phrase in caption:
+                phrase_bonus = 0.35
+
+        # 6. Base scores
+        base_score = float(chunk.get("relevance_score", 0.5) or 0.5)
+        raw_sim = float(chunk.get("raw_similarity", 0.5) or 0.5)
+
+        # 7. Modality boost
+        modality_bonus = 0.15 if (chunk.get("media_path") and modality in ("image-caption", "table")) else 0.0
+
+        # 8. Reliability multiplier
+        reliability = str(chunk.get("source_reliability", "")).lower()
+        rel_mult = 1.1 if ("official" in reliability or "codex" in reliability) else \
+                   0.85 if ("ballad" in reliability or "tavern" in reliability) else 1.0
+
+        # 9. Entity penalty
+        entity_penalty = 0.2 if (entities and not has_entity_hit and len(keywords) > 0) else 1.0
+
+        cross_score = (
+            (base_score * 0.25) +
+            (raw_sim * 0.20) +
+            (kw_coverage * 0.25) +
+            entity_bonus +
+            dossier_bonus +
+            field_bonus +
+            phrase_bonus +
+            modality_bonus
+        ) * rel_mult * entity_penalty
+
+        return round(cross_score, 4)
+
+Me:
+the reranker is updating relevance_score in the chunk dict. should i mutate the
+original chunk or make a copy
+
+Claude:
+Make a copy — mutating the original can cause issues if the same chunk object
+is used elsewhere (e.g. in the fallback path or logging):
+
+    def rerank_chunks(query: str, chunks: list[dict], top_k: int = 5) -> list[dict]:
+        if not chunks:
+            return []
+
+        reranked = []
+        for c in chunks:
+            c_copy = dict(c)              # shallow copy is enough
+            score = compute_cross_relevance(query, c)
+            c_copy["rerank_score"] = score
+            c_copy["relevance_score"] = score
+            reranked.append(c_copy)
+
+        reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
+        return reranked[:top_k]
+
+Shallow copy with dict(c) is fine since chunk values are all primitives
+(strings, ints, floats). Deep copy not needed.
+
+
+--------------------------------------------------------------------------------
+Elbow Method Score Drop-Off and Token Budget
+--------------------------------------------------------------------------------
+
+Me:
+after reranking we want to prune trailing low-relevance chunks. we're calling this
+the elbow method. basically drop chunks whose score falls below a fraction of the
+top score. how do i implement that
+
+Claude:
+    def apply_relative_score_dropoff(
+        chunks: list[dict],
+        alpha: float = 0.60,
+        min_k: int = 1,
+        max_k: int = 8
+    ) -> list[dict]:
+        if not chunks:
+            return []
+
+        sorted_chunks = sorted(
+            chunks,
+            key=lambda x: float(x.get("relevance_score", 0.0) or 0.0),
+            reverse=True
+        )
+
+        top_score = float(sorted_chunks[0].get("relevance_score", 0.0))
+        if top_score <= 0.0:
+            return sorted_chunks[:min_k]
+
+        threshold = top_score * alpha
+        retained = []
+
+        for i, c in enumerate(sorted_chunks):
+            c_score = float(c.get("relevance_score", 0.0) or 0.0)
+            if i < min_k:
+                retained.append(c)
+                continue
+            if len(retained) >= max_k:
+                break
+            if c_score >= threshold:
+                retained.append(c)
+            else:
+                logger.debug(f"Drop-off at chunk {i+1}: score {c_score:.3f} < threshold {threshold:.3f}")
+                break
+
+        return retained
+
+alpha=0.60 means keep chunks within 60% of top score. Good starting value.
+Run your eval on 0.55, 0.60, 0.65 and pick the best for your 20 questions.
+
+Me:
+and after the elbow pruning, we also want to cap the total tokens sent to the LLM
+to avoid slow generation. how to do that without a proper tokenizer
+
+Claude:
+Heuristic tokenization — 1 word ≈ 1.33 tokens. Close enough for a context budget:
+
+    def apply_token_budget_packing(
+        chunks: list[dict],
+        max_tokens: int = 2500
+    ) -> list[dict]:
+        packed = []
+        current_tokens = 0
+
+        for c in chunks:
+            text = str(c.get("content", "")) + " " + str(c.get("caption", "") or "")
+            word_count = len(text.split())
+            est_tokens = max(int(word_count * 1.33), 10)
+
+            if packed and (current_tokens + est_tokens > max_tokens):
+                logger.debug(f"Token budget reached ({current_tokens} tokens). Stopping.")
+                break
+
+            packed.append(c)
+            current_tokens += est_tokens
+
+        return packed
+
+2500 tokens leaves comfortable room for the system prompt + user query +
+generation output within a typical 8k context window. Adjust if you switch models.
+
+
+--------------------------------------------------------------------------------
+CRAG Confidence Grading
+--------------------------------------------------------------------------------
+
+Me:
+for CRAG we want to evaluate retrieval quality before calling the LLM. three verdicts:
+CORRECT, AMBIGUOUS, OUT_OF_DOMAIN. how do we compute this from just the vector scores
+without another model call
+
+Claude:
+Read the raw_similarity you already computed during ChromaDB retrieval.
+No second model call needed:
+
+    def evaluate_retrieval_confidence(
+        query: str,
+        retrieved_chunks: list[dict],
+        threshold: float = 0.28
+    ) -> dict:
+        if not retrieved_chunks:
+            return {
+                "verdict": "OUT_OF_DOMAIN",
+                "is_in_domain": False,
+                "confidence_score": 0.0,
+                "top_similarity": 0.0
+            }
+
+        top_sim = max(
+            float(c.get("raw_similarity", 0.0) or 0.0)
+            for c in retrieved_chunks
+        )
+
+        # Count how many retrieved chunks contain known corpus entities
+        all_text = " ".join(str(c.get("content", "")) for c in retrieved_chunks).lower()
+        entities = extract_entities(query)
+        entity_presence = sum(1 for e in entities if e.lower() in all_text)
+        entity_ratio = entity_presence / max(len(entities), 1)
+
+        if top_sim >= 0.45 and (not entities or entity_ratio > 0.0):
+            verdict = "CORRECT"
+        elif top_sim >= 0.28:
+            verdict = "AMBIGUOUS"
+        else:
+            verdict = "OUT_OF_DOMAIN"
+
+        return {
+            "verdict": verdict,
+            "is_in_domain": verdict != "OUT_OF_DOMAIN",
+            "confidence_score": round(top_sim, 4),
+            "top_similarity": round(top_sim, 4)
+        }
+
+CORRECT → pass to LLM normally.
+AMBIGUOUS → pass to LLM, but add a note that some context may be missing.
+OUT_OF_DOMAIN → skip LLM entirely, return the standard refusal message.
+
+Me:
+what if someone asks about a real corpus entity but with a different phrasing and
+the similarity comes back low. wont that give a false OUT_OF_DOMAIN verdict
+
+Claude:
+Yes, that's the failure case. The entity_ratio check partially mitigates it —
+if your entity extractor found a known corpus name in the query AND that name
+appears in the retrieved chunks, it's unlikely to be truly OOD even if similarity
+is borderline.
+
+Also tune your threshold conservatively (0.28 rather than 0.35).
+False OOD is a worse user experience than a slightly uncertain answer.
+If in doubt, return AMBIGUOUS and let the LLM try — the grounded system prompt
+will refuse to hallucinate anyway.
+
+================================================================================
+END OF LOG — P3 (Rasheed A. A. A.)
+================================================================================
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P4: S. Dharshan
+Role: Generation, Evaluation & Delivery Lead
+Coverage: Groq LPU integration, system prompt engineering, hallucination
+          prevention, multimodal response rendering, automated evaluation
+          pipeline, Streamlit UI caching and session state, latency optimization
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
+
+--------------------------------------------------------------------------------
+Groq API Setup and Model Selection
+--------------------------------------------------------------------------------
+
+Me:
+we decided to use groq for generation because of the speed. which model should we
+use and how do we initialize the client properly
+
+Claude:
+Groq's LPU inference is genuinely fast — 200-300 tokens/sec on their hosted models.
+For your use case (factual archival Q&A, structured responses), good options are:
+
+- qwen/qwen3-32b: Strong instruction following, good at structured formatting
+- llama-3.1-70b-versatile: Excellent all-rounder
+- llama-3.1-8b-instant: If you need ultra-low latency, less accuracy
+
+For a competition where answer quality matters more than raw speed, qwen3-32b or
+the 70B llama are the right calls.
+
+Initialize the client once and reuse it:
+
+    from groq import Groq
+    import os
+
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+    def call_groq(messages: list[dict], model: str = "qwen/qwen3-32b",
+                  max_tokens: int = 800, temperature: float = 0.1) -> str:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return response.choices[0].message.content
+
+Keep GROQ_API_KEY in .env, never hardcode it. Free API keys from console.groq.com.
+
+Me:
+how do we structure the messages list. like do we put the context chunks in the
+system prompt or the user message
+
+Claude:
+System prompt carries the persona, rules, and operating directives.
+User message carries the context chunks + the actual query.
+This is the standard pattern that works best:
+
+    messages = [
+        {
+            "role": "system",
+            "content": GROUNDED_SYSTEM_PROMPT   # persona + strict rules
+        },
+        {
+            "role": "user",
+            "content": format_context_prompt(query, chunks)  # context + question
+        }
+    ]
+
+Keep the system prompt fixed and the user message dynamic.
+Don't put context chunks in the system prompt — it's harder to update
+and some models give system content lower priority than user content.
+
+Me:
+and for multi-turn chat should we include the full conversation history
+in every api call
+
+Claude:
+Yes, include history — that's what makes it feel like a conversation rather
+than isolated queries. But cap the history to avoid context overflow:
+
+    MAX_HISTORY_TURNS = 6   # 3 user + 3 assistant turns
+
+    def build_messages(query: str, chunks: list[dict], history: list[dict]) -> list[dict]:
+        messages = [{"role": "system", "content": GROUNDED_SYSTEM_PROMPT}]
+
+        # Include recent history (trim if too long)
+        recent_history = history[-(MAX_HISTORY_TURNS * 2):]
+        messages.extend(recent_history)
+
+        # Add current query with context
+        messages.append({
+            "role": "user",
+            "content": format_context_prompt(query, chunks)
+        })
+
+        return messages
+
+Each history entry is {"role": "user"/"assistant", "content": "..."}
+Trim from the front (oldest messages) when the list grows too long.
+
+
+--------------------------------------------------------------------------------
+System Prompt Engineering — Grounding and Anti-Hallucination
+--------------------------------------------------------------------------------
+
+Me:
+the model keeps adding filler like "Based on the context provided" and "I hope
+this helps". how do we get rid of that through the prompt
+
+Claude:
+Explicit negative instructions work well. Add to your system prompt:
+
+    "STRICT FORMATTING RULES:
+    - Start immediately with the core answer. Do not begin with phrases like
+      'Based on the provided context', 'According to the archive', 'Sure, I can help',
+      'Here is what I found', or 'I hope this helps'.
+    - Every response must begin with a direct factual statement or the executive summary.
+    - Never use filler sentences. Never pad responses with transitional pleasantries."
+
+Also set temperature=0.1. Low temperature reduces creative embellishment.
+The combination of explicit instruction + low temperature eliminates filler
+in almost every response.
+
+Me:
+we also need it to strictly not use its own training knowledge, only what we give
+in the context chunks. how do we enforce that hard
+
+Claude:
+Make the constraint explicit with a specific fallback phrase to use:
+
+    GROUNDED_SYSTEM_PROMPT = """You are DeepThink, the master archival intelligence
+    of the Ashen Era Archive.
+
+    CORE OPERATING DIRECTIVES:
+
+    1. ANSWER ONLY FROM PROVIDED CONTEXT:
+       You have ZERO world knowledge outside the Ashen Era Archive documentation
+       provided in the context chunks below.
+       Never use your training knowledge. Never speculate or infer beyond what is
+       explicitly stated in the context.
+
+    2. WHEN INFORMATION IS MISSING:
+       If the answer is not present in the provided context chunks, reply with exactly:
+       "Based on the available records in the Ashen Era Archive, there is no documented
+       information regarding [specific detail]."
+       Do not guess. Do not hedge with "it is possible that". State the absence plainly.
+
+    3. SOURCE CONFLICTS:
+       If two context chunks contradict each other, state BOTH records verbatim.
+       Do not invent a reconciliation. Say explicitly that the archive presents both
+       entries without reconciliation.
+
+    4. CITATIONS:
+       Every factual claim must be followed immediately by [Document Name, Page X].
+
+    5. OUT OF SCOPE:
+       If the query is about real-world topics, reply ONLY with the standard refusal.
+       Do not engage with the real-world topic at all.
+    """
+
+The "reply with exactly" phrase is critical. It gives the model a specific thing
+to say rather than leaving it to improvise — improvised refusals often still
+contain hallucinated partial answers.
+
+Me:
+for the response structure, we want executive summary then detailed breakdown then
+citations then key takeaway. how do we get the model to consistently follow that
+
+Claude:
+Put the structure template directly in the system prompt and label each section:
+
+    "RESPONSE STRUCTURE — follow this exactly for every answer:
+
+    **Executive Summary**
+    1-2 sentences. The direct answer to the question, stated immediately.
+
+    **Detailed Archival Breakdown**
+    Thematic bullet points with bold headers. Include all specific names, dates,
+    numerical figures, geographical regions, and exact specifications from the context.
+    Never summarize vaguely — always extract the exact values.
+
+    **Multimodal Assets**
+    If any context chunk has a media_path, embed it: ![Caption](media_path)
+    Accompany it with one sentence explaining what the figure shows.
+
+    **Key Takeaway**
+    One concluding sentence synthesizing the core finding.
+
+    CITATIONS must appear inline after every factual claim as [Document Name, Page X].
+    Do not collect all citations at the end — inline only."
+
+The model follows this template very consistently at temperature 0.1.
+If it drifts, add "This structure is mandatory for every response."
+
+Me:
+we want to embed figure plate images inline in the response. the chunk has a
+media_path field. how do we get the LLM to include the image markdown syntax
+
+Claude:
+Include it in the context formatting. When you build the context prompt,
+explicitly tell the model which chunks have images and show the exact syntax:
+
+    def format_context_prompt(query: str, chunks: list[dict]) -> str:
+        lines = [f"User Query: {query}\n\nRetrieved Archive Context Chunks:"]
+
+        for i, c in enumerate(chunks, 1):
+            doc = c.get("document_name", "Unknown")
+            page = c.get("page_number", 1)
+            modality = c.get("modality", "text")
+            content = c.get("content", "")
+            caption = c.get("caption", "")
+            media_path = c.get("media_path", "")
+
+            lines.append(f"\n--- Chunk {i} | Source: [{doc}, Page {page}] | Type: {modality} ---")
+            lines.append(content)
+
+            if caption:
+                lines.append(f"Caption: {caption}")
+
+            if media_path:
+                lines.append(f"[EMBED THIS IMAGE IN YOUR RESPONSE]: ![{caption}]({media_path})")
+
+        lines.append("\nAnswer the query using ONLY the above context. Follow the required structure.")
+        return "\n".join(lines)
+
+The [EMBED THIS IMAGE] instruction in the context tells the model exactly
+where to put the image embed and what syntax to use. It works reliably.
+
+
+--------------------------------------------------------------------------------
+Streamlit UI — Caching, Session State, and Rendering
+--------------------------------------------------------------------------------
+
+Me:
+streamlit reruns the whole script every time a user sends a message. this means
+chromadb and the embedding model reload every single interaction. how to fix
+
+Claude:
+st.cache_resource is exactly for this — it caches non-serializable objects
+(models, DB connections) for the lifetime of the Streamlit server process:
+
+    import streamlit as st
+
+    @st.cache_resource
+    def load_retrieval_pipeline():
+        from src.retrieval.retriever import get_collection
+        return get_collection()   # ChromaDB collection, cached permanently
+
+    @st.cache_resource
+    def load_embedding_function():
+        from src.retrieval.indexer import get_embedding_function
+        return get_embedding_function()   # BGE model, cached permanently
+
+    @st.cache_resource
+    def load_groq_client():
+        from groq import Groq
+        import os
+        return Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+Call these at the top of your app.py. They execute once on first load,
+then return the cached object on every subsequent rerun. Zero reload cost.
+
+    # At top of app.py
+    collection = load_retrieval_pipeline()
+    groq_client = load_groq_client()
+
+Do NOT use @st.cache_data for models or DB connections — it tries to
+serialize them and throws errors. cache_resource = for objects,
+cache_data = for data.
+
+Me:
+for the chat history in the UI how do we keep messages across reruns
+
+Claude:
+st.session_state persists within a browser session:
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Render all previous messages
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Handle new user input
+    if prompt := st.chat_input("Ask about the Ashen Era Archive..."):
+        # Append user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Generate and display response
+        with st.chat_message("assistant"):
+            with st.spinner("Searching the Archive..."):
+                answer = run_full_pipeline(prompt)
+            st.markdown(answer)
+
+        # Append assistant response
+        st.session_state.messages.append({"role": "assistant", "content": answer})
+
+Closing and reopening the browser tab resets session state — expected behavior.
+
+Me:
+for rendering inline images in the answer, the LLM generates markdown image syntax
+like ![caption](path). how do we make streamlit actually render those
+
+Claude:
+st.markdown() renders markdown image syntax natively as long as the path is
+accessible. For local file paths, Streamlit needs to serve them — either put
+them in the static folder or use st.image() for programmatic rendering.
+
+The cleaner approach: post-process the LLM response to extract image paths
+and render them separately with st.image():
+
+    import re
+
+    def render_answer_with_images(answer_text: str):
+        # Find all ![caption](path) patterns
+        img_pattern = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+        parts = img_pattern.split(answer_text)
+
+        # Parts alternates: text, caption, path, text, caption, path, ...
+        i = 0
+        while i < len(parts):
+            if i % 3 == 0:
+                # Text part
+                if parts[i].strip():
+                    st.markdown(parts[i])
+            elif i % 3 == 2:
+                # Path part (caption is i-1)
+                caption = parts[i-1]
+                path = parts[i]
+                if os.path.exists(path):
+                    st.image(path, caption=caption, use_column_width=True)
+            i += 1
+
+This gives you clean image rendering with proper captions in Streamlit
+even for local file paths.
+
+Me:
+the UI feels slow. the spinner shows for 2-3 seconds even for simple queries.
+how do we show the response progressively like streaming
+
+Claude:
+Groq supports streaming. Use stream=True and st.write_stream():
+
+    def stream_groq_response(messages: list[dict], model: str) -> str:
+        stream = groq_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=800,
+            temperature=0.1,
+            stream=True,
+        )
+        return stream
+
+    # In your UI
+    with st.chat_message("assistant"):
+        stream = stream_groq_response(messages, model=LLM_MODEL_NAME)
+        response = st.write_stream(
+            chunk.choices[0].delta.content or ""
+            for chunk in stream
+            if chunk.choices[0].delta.content
+        )
+
+    st.session_state.messages.append({"role": "assistant", "content": response})
+
+st.write_stream() handles the token-by-token display. User sees words appearing
+immediately instead of waiting for the full response. Groq at 300 t/s makes
+this feel very fast.
+
+
+--------------------------------------------------------------------------------
+Automated Evaluation Pipeline
+--------------------------------------------------------------------------------
+
+Me:
+we need to run all 20 questions from sample_questions.json through the pipeline
+and save the results. how do we structure the evaluation script
+
+Claude:
+    import json, time
+    from pathlib import Path
+
+    def run_evaluation(
+        questions_path: str,
+        output_path: str,
+        retriever,
+        generator
+    ) -> dict:
+        with open(questions_path) as f:
+            questions = json.load(f)
+
+        results = []
+        passed = 0
+
+        for q in questions:
+            qid = q["qid"]
+            question = q["question"]
+            track = q["track"]
+
+            try:
+                start = time.perf_counter()
+                chunks = retriever.retrieve(question)
+                answer = generator.generate(question, chunks)
+                latency = time.perf_counter() - start
+
+                result = {
+                    "qid": qid,
+                    "track": track,
+                    "question": question,
+                    "answer": answer,
+                    "retrieved_sources": [c.get("document_name") for c in chunks],
+                    "retrieved_pages": [c.get("page_number") for c in chunks],
+                    "chunks_retrieved": len(chunks),
+                    "latency_s": round(latency, 3),
+                    "has_media": any(c.get("media_path") for c in chunks),
+                }
+                results.append(result)
+                passed += 1
+                print(f"[OK] {qid} ({track[:20]}): {latency:.2f}s, {len(chunks)} chunks")
+
+            except Exception as e:
+                results.append({"qid": qid, "error": str(e), "question": question})
+                print(f"[ERROR] {qid}: {e}")
+
+        summary = {
+            "total": len(questions),
+            "passed": passed,
+            "failed": len(questions) - passed,
+            "avg_latency_s": round(
+                sum(r.get("latency_s", 0) for r in results if "latency_s" in r) / max(passed, 1),
+                3
+            )
+        }
+
+        output = {"summary": summary, "results": results}
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)
+
+        print(f"\n=== Evaluation Complete ===")
+        print(f"Passed: {passed}/{len(questions)}")
+        print(f"Avg latency: {summary['avg_latency_s']}s")
+        return summary
+
+Me:
+for tracking metrics like retrieval precision and hallucination rate, how do we
+score those automatically without manually checking every answer
+
+Claude:
+For 20 questions, manual annotation is actually the right call for precision.
+Spend 30 minutes labeling which document each answer should come from — you'll
+have ground truth. Then auto-check:
+
+    def score_retrieval_precision(results: list[dict], ground_truth: dict) -> float:
+        correct = 0
+        for r in results:
+            qid = r["qid"]
+            if qid not in ground_truth:
+                continue
+            expected_source = ground_truth[qid]["source_document"]
+            retrieved_sources = r.get("retrieved_sources", [])
+            if any(expected_source.lower() in src.lower() for src in retrieved_sources):
+                correct += 1
+        return correct / max(len(results), 1)
+
+For hallucination detection, use an LLM judge — but use a cheap fast model
+(llama-3.1-8b-instant) not your main qwen model:
+
+    def judge_for_hallucination(question: str, answer: str, context: str) -> bool:
+        prompt = f"""Does the following answer contain any claims NOT supported by the context?
+
+Context:
+{context[:1000]}
+
+Answer:
+{answer[:500]}
+
+Reply with only YES (hallucination present) or NO (fully grounded)."""
+
+        result = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=5,
+            temperature=0
+        )
+        return "YES" in result.choices[0].message.content.upper()
+
+Me:
+we want to track the metrics in a table format for the submission report.
+how do we compute and display retrieval precision, citation accuracy,
+hallucination rate, and modality success rate
+
+Claude:
+Compute them from your results JSON after the eval run:
+
+    def compute_metrics(results: list[dict], ground_truth: dict) -> dict:
+        total = len(results)
+        retrieval_correct = 0
+        citation_correct = 0
+        no_hallucination = 0
+        modality_success = 0
+        modality_total = 0
+
+        for r in results:
+            qid = r.get("qid", "")
+            gt = ground_truth.get(qid, {})
+
+            # Retrieval precision
+            if any(gt.get("source", "").lower() in s.lower()
+                   for s in r.get("retrieved_sources", [])):
+                retrieval_correct += 1
+
+            # Citation accuracy — check if answer contains [Document, Page X]
+            import re
+            if re.search(r'\[.+?,\s*Page\s*\d+\]', r.get("answer", "")):
+                citation_correct += 1
+
+            # Hallucination (from judge results stored separately)
+            if not r.get("hallucinated", False):
+                no_hallucination += 1
+
+            # Modality success — for visual/table tracks
+            if "1A" in r.get("track", ""):
+                modality_total += 1
+                if r.get("has_media"):
+                    modality_success += 1
+
+        return {
+            "retrieval_precision": f"{retrieval_correct}/{total} ({retrieval_correct/total*100:.1f}%)",
+            "citation_accuracy": f"{citation_correct}/{total} ({citation_correct/total*100:.1f}%)",
+            "hallucination_rate": f"{total-no_hallucination}/{total} ({(total-no_hallucination)/total*100:.1f}%)",
+            "modality_success_rate": f"{modality_success}/{modality_total}" if modality_total else "N/A",
+        }
+
+Print this dict as a table for your submission report.
+Format it in markdown and paste straight into the report.
+
+Me:
+how do we handle the case where the groq api rate limits us during evaluation
+since 20 consecutive calls might hit limits
+
+Claude:
+Add a small sleep between calls and wrap in retry logic:
+
+    import time
+
+    def call_groq_with_retry(messages, model, max_retries=3, delay=2.0):
+        for attempt in range(max_retries):
+            try:
+                response = groq_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=800,
+                    temperature=0.1,
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                if "rate_limit" in str(e).lower() or "429" in str(e):
+                    print(f"Rate limited. Waiting {delay}s before retry {attempt+1}...")
+                    time.sleep(delay)
+                    delay *= 2   # exponential backoff
+                else:
+                    raise
+
+        raise RuntimeError(f"Failed after {max_retries} retries")
+
+Groq's free tier allows 30 requests/minute. 20 questions with 1-2s latency
+each should be well within limits. But having the retry logic is good practice
+anyway — network hiccups also trigger it.
+
+================================================================================
+END OF LOG — P4 (S. Dharshan)
 ================================================================================

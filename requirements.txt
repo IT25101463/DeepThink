@@ -21,7 +21,7 @@ markdown>=3.5.0         # Markdown text utilities
 # 100% Free Local Embeddings & Vector Search (P3 - Zero Card / Zero API Key)
 sentence-transformers>=2.2.2  # High-performance local embeddings (BGE / MiniLM)
 chromadb>=0.4.22              # Local embedded vector database
-torchvision                   # Vision transform utilities
+torchvision==0.28.0           # Vision transform utilities (pinned for reproducibility)
 numpy>=1.24.0
 
 # LLM & Generation (P4 - 100% Free Groq Cloud 300+ t/s LPU)

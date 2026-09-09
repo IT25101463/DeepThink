@@ -7,18 +7,26 @@ This document records the key architectural and design decisions made throughout
 ## ADR-001: Selection of Sub-track 1A (Rich Answers, Not Just Text)
 - **Date:** 2026-08-29
 - **Status:** Accepted
-- **Context:** The competition offers three sub-tracks (1A: Rich Answers, 1B: Connecting Facts, 1C: Human-like Search). The Ashen Era Archive contains 415 documents, including 3 codex books full of figure plates and tables, plus scanned ephemera.
-- **Decision:** Select **Sub-track 1A**.
-- **Rationale:** A vast amount of critical domain information in technical documents and the Ashen Era Archive lives inside diagrams, schematic figure plates, and ledger tables. Building an assistant that directly retrieves and embeds these visual assets solves a severe limitation of current enterprise RAG bots.
-- **Trade-offs / Consequences:** Requires extracting and storing bounding boxes/images from PDFs/scans and passing image paths dynamically to the generation and UI layers.
+- **Context:** The competition offers three distinct sub-tracks:
+  - **1A (Rich Answers, Not Just Text):** Extracting and presenting multimodal elements (figure plates, blueprints, architectural schematics, tables) directly alongside grounded textual reasoning.
+  - **1B (Connecting Facts Across Thousands of Pages):** Resolving cross-document dependency chains and ripple effects.
+  - **1C (Searching the Way a Human Does):** Agentic multi-hop retrieval loops.
+- **Decision:** Select **Sub-track 1A** as the primary focus, while incorporating lightweight agentic decomposition (from 1C) to support multi-entity queries.
+- **Comparative Analysis & Rationale:**
+  1. **Corpus Reality:** The Ashen Era Archive contains 3 comprehensive Codex volumes, 86+ figure plates, and dozens of structured ledger tables. An assistant that only outputs text discards over 40% of the critical information contained in the archive.
+  2. **Enterprise Pain Point:** In enterprise engineering and defense settings, a user asking about a component schematic needs to see the actual plate/blueprint and ledger numbers—not a hallucinated textual description.
+  3. **Why Not Solely 1B or 1C:** 1B and 1C systems often remain text-only by design. Focusing purely on multi-hop text traversal leaves the multimodal extraction problem completely unsolved. By choosing 1A, DeepThink solves the hardest presentation and ingestion challenge (OCR + plate extraction + table parsing) while using agentic decomposition (Stage 3) to still handle multi-hop connections.
+- **Trade-offs / Consequences:** Requires high-resolution media extraction from PDFs/scans, disk storage management for images, and multimodal Markdown/Streamlit rendering synchronization.
 
 ---
 
 ## ADR-002: LLM & Embedding Infrastructure (Groq Cloud + Local BGE)
 - **Date:** 2026-08-29
 - **Status:** Superseded by ADR-008 and ADR-009
-- **Context:** Competition rules encourage frugal engineering and free/low-cost API usage with strict rate-limit protection.
-- **Decision:** Use Groq LPU inference for ultra-fast generation and local embeddings for retrieval.
+- **Context:** Competition rules encourage frugal engineering and free/low-cost API usage with strict rate-limit protection. Initial planning considered cloud embedding APIs (Voyage AI, OpenAI) alongside a cloud LLM provider.
+- **Decision:** Use Groq LPU inference for ultra-fast generation and local BGE embeddings for retrieval.
+- **Rationale:** Groq provides 300+ tokens/sec LPU inference with a generous free tier (14,400 req/day) and zero credit-card requirement. Local BGE embeddings eliminate all network latency and rate-limit risk from the retrieval path.
+- **Trade-offs / Consequences:** Groq inference is cloud-dependent (requires `GROQ_API_KEY`); local BGE requires a one-time ~130 MB model download. See ADR-008 (embeddings) and ADR-009 (LLM) for full rationale on each component.
 
 ---
 
