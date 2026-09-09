@@ -84,38 +84,102 @@ def evaluate_citation_accuracy(answer: str, chunks: List[Dict[str, Any]]) -> boo
 
 def evaluate_hallucination(answer: str, chunks: List[Dict[str, Any]]) -> bool:
     """
-    Evaluates whether the answer asserts unsupported claims not in the retrieved context.
-    Returns True if hallucination is detected, False if answer is grounded.
+    Rigorously evaluates whether the generated answer asserts unsupported factual claims
+    (entities, years, garrison numbers, costs) not present in the retrieved context chunks.
+    Returns True if hallucination / ungrounded claim is detected, False if answer is grounded.
     """
-    if "The archive records do not specify" in answer or "records do not specify" in answer.lower():
-        return False  # Grounded refusal
+    # Grounded refusals are not hallucinations
+    if "archive records do not specify" in answer.lower() or "no documented information" in answer.lower():
+        return False
+
+    # Out-of-scope refusals are not hallucinations
+    if "outside the scope of this archival repository" in answer.lower() or "outside the scope of this repository" in answer.lower():
+        return False
 
     if not chunks and len(answer.strip()) > 30:
-        return True  # Claimed facts with zero context
+        return True  # Asserted facts with zero context
 
-    # Strict check: ensure core nouns in answer appear across context chunks
+    # Aggregate all text from retrieved chunks
+    context_text = " ".join([
+        f"{c.get('document_name', '')} {c.get('caption', '') or ''} {c.get('section_title', '') or ''} {c.get('content', '')}"
+        for c in chunks
+    ]).lower()
+
+    # Extract factual tokens: 4-digit years, numbers >= 10, capitalized proper nouns
+    years_in_answer = set(re.findall(r"\b(1\d{3}|20\d{2})\b", answer))
+    # Check if specific years asserted in answer exist in context
+    for y in years_in_answer:
+        if y not in context_text:
+            logger.warning(f"Hallucination check: year '{y}' in answer not found in context.")
+            return True
+
+    # Extract numerical claims (troop numbers, costs, stats like '1,114', '3,107')
+    stats_in_answer = set(re.findall(r"\b\d{1,3}(?:,\d{3})+\b", answer))
+    for stat in stats_in_answer:
+        stat_clean = stat.replace(",", "")
+        if stat not in context_text and stat_clean not in context_text.replace(",", ""):
+            logger.warning(f"Hallucination check: numerical statistic '{stat}' not found in context.")
+            return True
+
+    # Extract capitalized proper noun phrases (2-3 words, excluding headers and markdown)
+    clean_lines = [
+        line for line in answer.splitlines() 
+        if not line.strip().startswith(("#", "*", "-", "!", "|", "Executive Summary", "Detailed Archival", "Key Takeaway", "CITATIONS"))
+    ]
+    plain_text = " ".join(clean_lines)
+    proper_nouns = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b", plain_text)
+    
+    stop_entities = {
+        "DeepThink", "Ashen Era", "Ashen Era Archive", "Detailed Archival",
+        "Executive Summary", "Key Takeaway", "Official Codex", "Codex Vaeloria"
+    }
+    
+    unsupported_count = 0
+    checked_count = 0
+    for pn in proper_nouns:
+        if pn in stop_entities:
+            continue
+        checked_count += 1
+        # Check if the proper noun or its primary token exists in context
+        tokens = [t.lower() for t in pn.split() if len(t) > 3]
+        if not any(t in context_text for t in tokens):
+            unsupported_count += 1
+
+    # If more than 35% of specific proper nouns in answer are missing from context, flag
+    if checked_count >= 3 and (unsupported_count / checked_count) > 0.35:
+        logger.warning(f"Hallucination check: {unsupported_count}/{checked_count} proper nouns unsupported.")
+        return True
+
     return False
 
 
 def evaluate_modality_success(question: str, answer: str, chunks: List[Dict[str, Any]], target_modality: str) -> bool:
     """
-    Evaluates whether visual/tabular questions resulted in embedded images or tables.
+    Evaluates whether visual/tabular questions resulted in verified embedded images or structured tables.
     """
     if target_modality == "image-caption":
-        # Check for embedded markdown image ![...](...)
-        img_match = re.search(r"!\[(.*?)\]\((.*?)\)", answer)
-        if img_match:
-            img_path = img_match.group(2)
-            resolved = resolve_media_path(img_path)
-            return resolved is not None
-        # Check if any chunk had an image that exists
+        # 1. Check for embedded markdown image ![caption](path)
+        img_matches = re.findall(r"!\[(.*?)\]\((.*?)\)", answer)
+        if img_matches:
+            for _, img_path in img_matches:
+                resolved = resolve_media_path(img_path)
+                if resolved and Path(resolved).exists():
+                    return True
+        # 2. Check if a valid image chunk exists and was surfaced in retrieved chunks
         for c in chunks:
             if c.get("modality") == "image-caption" and c.get("media_path"):
-                if resolve_media_path(c.get("media_path")):
+                resolved = resolve_media_path(c.get("media_path"))
+                if resolved and Path(resolved).exists():
                     return True
         return False
     elif target_modality == "table":
-        return "|" in answer or any(c.get("modality") == "table" for c in chunks)
+        # Check for genuine Markdown table structure: header row and divider row (|---|)
+        has_table_divider = bool(re.search(r"\|(?:\s*[-:]+[-| :]*)\|", answer))
+        has_table_rows = answer.count("|") >= 6
+        if has_table_divider and has_table_rows:
+            return True
+        # Or check if any chunk retrieved had structured table content
+        return any(c.get("modality") == "table" and "|" in str(c.get("content", "")) for c in chunks)
     
     return True  # Text questions pass by default
 
@@ -211,7 +275,12 @@ def run_benchmark(
         logger.info(f"[{idx:02d}/{total_q:02d}] {status_sym} QID: {qid} | Latency: {elapsed}s | Modal: {target_mod} | Cite: {acc_cite} | Ret: {p_ret}")
 
     # Compute aggregate metrics
+    import numpy as np
+    sorted_latencies = sorted(latencies) if latencies else [0.0]
     avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.0
+    p50_latency = round(float(np.percentile(sorted_latencies, 50)), 2) if latencies else 0.0
+    p95_latency = round(float(np.percentile(sorted_latencies, 95)), 2) if latencies else 0.0
+
     ret_pct = round((retrieval_pass / total_q) * 100, 1) if total_q else 0.0
     cite_pct = round((citation_pass / total_q) * 100, 1) if total_q else 0.0
     halluc_pct = round((hallucination_count / total_q) * 100, 1) if total_q else 0.0
@@ -224,6 +293,8 @@ def run_benchmark(
         "hallucination_rate": f"{halluc_pct}% ({hallucination_count}/{total_q})",
         "modality_success_rate": f"{modal_pct}% ({modality_pass}/{modality_total})",
         "average_latency_seconds": avg_latency,
+        "median_p50_latency_seconds": p50_latency,
+        "p95_latency_seconds": p95_latency,
         "results": results
     }
 
@@ -247,7 +318,7 @@ def run_benchmark(
     print(f" Citation Accuracy           : {summary['citation_accuracy']}")
     print(f" Hallucination Rate          : {summary['hallucination_rate']}")
     print(f" Modality Success Rate       : {summary['modality_success_rate']}")
-    print(f" Average End-to-End Latency  : {avg_latency}s")
+    print(f" Average End-to-End Latency  : {avg_latency}s (p50: {p50_latency}s | p95: {p95_latency}s)")
     print("=" * 65 + "\n")
 
     return summary
