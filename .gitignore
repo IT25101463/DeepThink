@@ -70,3 +70,4 @@ Thumbs.db
 # Generated submission previews and local reports
 submission_report_preview.html
 submission_report_preview.pdf
+*.zip

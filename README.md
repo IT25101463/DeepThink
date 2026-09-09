@@ -8,6 +8,13 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)]()
 [![Track](https://img.shields.io/badge/Codefest-Subtrack_1A-orange.svg)]()
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://deepthink-c9trxotutcgjenphr6ltky.streamlit.app)
+
+> 🎥 **Demonstration Video (YouTube Unlisted):** [https://www.youtube.com/watch?v=qNpZ9lcPa1c](https://www.youtube.com/watch?v=qNpZ9lcPa1c)  
+> • `0:00` – Architecture & Solution Presentation (Slides 1 to 10)  
+> • `07:07` – Live Prototype Demonstration (Streamlit Web App)  
+> 🌐 **Live Interactive Web App:** [https://deepthink-c9trxotutcgjenphr6ltky.streamlit.app](https://deepthink-c9trxotutcgjenphr6ltky.streamlit.app)  
+> 📄 **Initial Round Submission Report:** [`submission_report.pdf`](submission_report.pdf) (Strictly 5 pages)
 
 ---
 
@@ -28,7 +35,7 @@ Enterprise documentation is inherently messy: it weaves text together with scann
 | :--- | :--- | :--- | :--- |
 | **Fatheen M. F. A.** | **P1 Lead (Document Parsing & OCR)** | Ingesting 415 corpus files (PDF/DOCX/MD/TXT), running OCR (Tesseract) on degraded simulated scans. | Section hierarchy & text chunking. |
 | **M. M. M. Shakeer** | **P2 Lead (Visual & Table Extraction)** | Extracting figure plates, diagrams, maps, cropping images, converting complex codex tables to Markdown. | Generating image captions & media metadata (86+ assets). |
-| **Rasheed A. A. A.** | **P3 Lead / Team Lead (Retrieval & Ranking)** | Compound RAG 3.0, ChromaDB local BGE indexing, dynamic 3-stage adaptive budgeting, cross-encoder re-ranking. | Pre-generation verification gate & fast-path guardrails. |
+| **Rasheed A. A. A.** | **P3 Lead (Retrieval & Ranking)** | Compound RAG 3.0, ChromaDB local BGE indexing, dynamic 3-stage adaptive budgeting, cross-encoder re-ranking. | Pre-generation verification gate & fast-path guardrails. |
 | **S. Dharshan** | **P4 Lead (Generation, Evaluation & Delivery)** | Flagship Groq LPU grounding (`qwen/qwen3.8-27b` @ 300 t/s), automated benchmark evaluation on `sample_questions.json`, metric tracking. | Streamlit UI integration, 5-page report & 10-min demo video. |
 
 *Every team member actively reviews and understands the complete pipeline.*
@@ -95,7 +102,7 @@ DeepThink/
 │   ├── .env.example                    # Sample environment variables
 │   └── config.example.json             # Example pipeline settings
 ├── requirements.txt                    # Project dependency specifications
-└── submission_report.pdf               # 5-page submission report (Section 5.3)
+└── submission_report.pdf               # 5-page submission report
 ```
 
 ---
