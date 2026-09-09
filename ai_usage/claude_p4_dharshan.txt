@@ -1,0 +1,580 @@
+NOTE: This file contains raw AI chat logs gathered individually from the respective
+team member during development. Logs have been compiled and lightly formatted
+for reviewer convenience and readability. All conversations were conducted with
+Claude Sonnet 4.6 (accessed via Google Antigravity IDE assistant).
+================================================================================
+
+================================================================================
+Claude Chat Log — Member P4: S. Dharshan
+Role: Generation, Evaluation & Delivery Lead
+Coverage: Groq LPU integration, system prompt engineering, hallucination
+          prevention, multimodal response rendering, automated evaluation
+          pipeline, Streamlit UI caching and session state, latency optimization
+SLIIT Codefest 2026 — DeepThink Project
+================================================================================
+
+
+--------------------------------------------------------------------------------
+Groq API Setup and Model Selection
+--------------------------------------------------------------------------------
+
+Me:
+we decided to use groq for generation because of the speed. which model should we
+use and how do we initialize the client properly
+
+Claude:
+Groq's LPU inference is genuinely fast — 200-300 tokens/sec on their hosted models.
+For your use case (factual archival Q&A, structured responses), good options are:
+
+- qwen/qwen3-32b: Strong instruction following, good at structured formatting
+- llama-3.1-70b-versatile: Excellent all-rounder
+- llama-3.1-8b-instant: If you need ultra-low latency, less accuracy
+
+For a competition where answer quality matters more than raw speed, qwen3-32b or
+the 70B llama are the right calls.
+
+Initialize the client once and reuse it:
+
+    from groq import Groq
+    import os
+
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+    def call_groq(messages: list[dict], model: str = "qwen/qwen3-32b",
+                  max_tokens: int = 800, temperature: float = 0.1) -> str:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return response.choices[0].message.content
+
+Keep GROQ_API_KEY in .env, never hardcode it. Free API keys from console.groq.com.
+
+Me:
+how do we structure the messages list. like do we put the context chunks in the
+system prompt or the user message
+
+Claude:
+System prompt carries the persona, rules, and operating directives.
+User message carries the context chunks + the actual query.
+This is the standard pattern that works best:
+
+    messages = [
+        {
+            "role": "system",
+            "content": GROUNDED_SYSTEM_PROMPT   # persona + strict rules
+        },
+        {
+            "role": "user",
+            "content": format_context_prompt(query, chunks)  # context + question
+        }
+    ]
+
+Keep the system prompt fixed and the user message dynamic.
+Don't put context chunks in the system prompt — it's harder to update
+and some models give system content lower priority than user content.
+
+Me:
+and for multi-turn chat should we include the full conversation history
+in every api call
+
+Claude:
+Yes, include history — that's what makes it feel like a conversation rather
+than isolated queries. But cap the history to avoid context overflow:
+
+    MAX_HISTORY_TURNS = 6   # 3 user + 3 assistant turns
+
+    def build_messages(query: str, chunks: list[dict], history: list[dict]) -> list[dict]:
+        messages = [{"role": "system", "content": GROUNDED_SYSTEM_PROMPT}]
+
+        # Include recent history (trim if too long)
+        recent_history = history[-(MAX_HISTORY_TURNS * 2):]
+        messages.extend(recent_history)
+
+        # Add current query with context
+        messages.append({
+            "role": "user",
+            "content": format_context_prompt(query, chunks)
+        })
+
+        return messages
+
+Each history entry is {"role": "user"/"assistant", "content": "..."}
+Trim from the front (oldest messages) when the list grows too long.
+
+
+--------------------------------------------------------------------------------
+System Prompt Engineering — Grounding and Anti-Hallucination
+--------------------------------------------------------------------------------
+
+Me:
+the model keeps adding filler like "Based on the context provided" and "I hope
+this helps". how do we get rid of that through the prompt
+
+Claude:
+Explicit negative instructions work well. Add to your system prompt:
+
+    "STRICT FORMATTING RULES:
+    - Start immediately with the core answer. Do not begin with phrases like
+      'Based on the provided context', 'According to the archive', 'Sure, I can help',
+      'Here is what I found', or 'I hope this helps'.
+    - Every response must begin with a direct factual statement or the executive summary.
+    - Never use filler sentences. Never pad responses with transitional pleasantries."
+
+Also set temperature=0.1. Low temperature reduces creative embellishment.
+The combination of explicit instruction + low temperature eliminates filler
+in almost every response.
+
+Me:
+we also need it to strictly not use its own training knowledge, only what we give
+in the context chunks. how do we enforce that hard
+
+Claude:
+Make the constraint explicit with a specific fallback phrase to use:
+
+    GROUNDED_SYSTEM_PROMPT = """You are DeepThink, the master archival intelligence
+    of the Ashen Era Archive.
+
+    CORE OPERATING DIRECTIVES:
+
+    1. ANSWER ONLY FROM PROVIDED CONTEXT:
+       You have ZERO world knowledge outside the Ashen Era Archive documentation
+       provided in the context chunks below.
+       Never use your training knowledge. Never speculate or infer beyond what is
+       explicitly stated in the context.
+
+    2. WHEN INFORMATION IS MISSING:
+       If the answer is not present in the provided context chunks, reply with exactly:
+       "Based on the available records in the Ashen Era Archive, there is no documented
+       information regarding [specific detail]."
+       Do not guess. Do not hedge with "it is possible that". State the absence plainly.
+
+    3. SOURCE CONFLICTS:
+       If two context chunks contradict each other, state BOTH records verbatim.
+       Do not invent a reconciliation. Say explicitly that the archive presents both
+       entries without reconciliation.
+
+    4. CITATIONS:
+       Every factual claim must be followed immediately by [Document Name, Page X].
+
+    5. OUT OF SCOPE:
+       If the query is about real-world topics, reply ONLY with the standard refusal.
+       Do not engage with the real-world topic at all.
+    """
+
+The "reply with exactly" phrase is critical. It gives the model a specific thing
+to say rather than leaving it to improvise — improvised refusals often still
+contain hallucinated partial answers.
+
+Me:
+for the response structure, we want executive summary then detailed breakdown then
+citations then key takeaway. how do we get the model to consistently follow that
+
+Claude:
+Put the structure template directly in the system prompt and label each section:
+
+    "RESPONSE STRUCTURE — follow this exactly for every answer:
+
+    **Executive Summary**
+    1-2 sentences. The direct answer to the question, stated immediately.
+
+    **Detailed Archival Breakdown**
+    Thematic bullet points with bold headers. Include all specific names, dates,
+    numerical figures, geographical regions, and exact specifications from the context.
+    Never summarize vaguely — always extract the exact values.
+
+    **Multimodal Assets**
+    If any context chunk has a media_path, embed it: ![Caption](media_path)
+    Accompany it with one sentence explaining what the figure shows.
+
+    **Key Takeaway**
+    One concluding sentence synthesizing the core finding.
+
+    CITATIONS must appear inline after every factual claim as [Document Name, Page X].
+    Do not collect all citations at the end — inline only."
+
+The model follows this template very consistently at temperature 0.1.
+If it drifts, add "This structure is mandatory for every response."
+
+Me:
+we want to embed figure plate images inline in the response. the chunk has a
+media_path field. how do we get the LLM to include the image markdown syntax
+
+Claude:
+Include it in the context formatting. When you build the context prompt,
+explicitly tell the model which chunks have images and show the exact syntax:
+
+    def format_context_prompt(query: str, chunks: list[dict]) -> str:
+        lines = [f"User Query: {query}\n\nRetrieved Archive Context Chunks:"]
+
+        for i, c in enumerate(chunks, 1):
+            doc = c.get("document_name", "Unknown")
+            page = c.get("page_number", 1)
+            modality = c.get("modality", "text")
+            content = c.get("content", "")
+            caption = c.get("caption", "")
+            media_path = c.get("media_path", "")
+
+            lines.append(f"\n--- Chunk {i} | Source: [{doc}, Page {page}] | Type: {modality} ---")
+            lines.append(content)
+
+            if caption:
+                lines.append(f"Caption: {caption}")
+
+            if media_path:
+                lines.append(f"[EMBED THIS IMAGE IN YOUR RESPONSE]: ![{caption}]({media_path})")
+
+        lines.append("\nAnswer the query using ONLY the above context. Follow the required structure.")
+        return "\n".join(lines)
+
+The [EMBED THIS IMAGE] instruction in the context tells the model exactly
+where to put the image embed and what syntax to use. It works reliably.
+
+
+--------------------------------------------------------------------------------
+Streamlit UI — Caching, Session State, and Rendering
+--------------------------------------------------------------------------------
+
+Me:
+streamlit reruns the whole script every time a user sends a message. this means
+chromadb and the embedding model reload every single interaction. how to fix
+
+Claude:
+st.cache_resource is exactly for this — it caches non-serializable objects
+(models, DB connections) for the lifetime of the Streamlit server process:
+
+    import streamlit as st
+
+    @st.cache_resource
+    def load_retrieval_pipeline():
+        from src.retrieval.retriever import get_collection
+        return get_collection()   # ChromaDB collection, cached permanently
+
+    @st.cache_resource
+    def load_embedding_function():
+        from src.retrieval.indexer import get_embedding_function
+        return get_embedding_function()   # BGE model, cached permanently
+
+    @st.cache_resource
+    def load_groq_client():
+        from groq import Groq
+        import os
+        return Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+Call these at the top of your app.py. They execute once on first load,
+then return the cached object on every subsequent rerun. Zero reload cost.
+
+    # At top of app.py
+    collection = load_retrieval_pipeline()
+    groq_client = load_groq_client()
+
+Do NOT use @st.cache_data for models or DB connections — it tries to
+serialize them and throws errors. cache_resource = for objects,
+cache_data = for data.
+
+Me:
+for the chat history in the UI how do we keep messages across reruns
+
+Claude:
+st.session_state persists within a browser session:
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Render all previous messages
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Handle new user input
+    if prompt := st.chat_input("Ask about the Ashen Era Archive..."):
+        # Append user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Generate and display response
+        with st.chat_message("assistant"):
+            with st.spinner("Searching the Archive..."):
+                answer = run_full_pipeline(prompt)
+            st.markdown(answer)
+
+        # Append assistant response
+        st.session_state.messages.append({"role": "assistant", "content": answer})
+
+Closing and reopening the browser tab resets session state — expected behavior.
+
+Me:
+for rendering inline images in the answer, the LLM generates markdown image syntax
+like ![caption](path). how do we make streamlit actually render those
+
+Claude:
+st.markdown() renders markdown image syntax natively as long as the path is
+accessible. For local file paths, Streamlit needs to serve them — either put
+them in the static folder or use st.image() for programmatic rendering.
+
+The cleaner approach: post-process the LLM response to extract image paths
+and render them separately with st.image():
+
+    import re
+
+    def render_answer_with_images(answer_text: str):
+        # Find all ![caption](path) patterns
+        img_pattern = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+        parts = img_pattern.split(answer_text)
+
+        # Parts alternates: text, caption, path, text, caption, path, ...
+        i = 0
+        while i < len(parts):
+            if i % 3 == 0:
+                # Text part
+                if parts[i].strip():
+                    st.markdown(parts[i])
+            elif i % 3 == 2:
+                # Path part (caption is i-1)
+                caption = parts[i-1]
+                path = parts[i]
+                if os.path.exists(path):
+                    st.image(path, caption=caption, use_column_width=True)
+            i += 1
+
+This gives you clean image rendering with proper captions in Streamlit
+even for local file paths.
+
+Me:
+the UI feels slow. the spinner shows for 2-3 seconds even for simple queries.
+how do we show the response progressively like streaming
+
+Claude:
+Groq supports streaming. Use stream=True and st.write_stream():
+
+    def stream_groq_response(messages: list[dict], model: str) -> str:
+        stream = groq_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=800,
+            temperature=0.1,
+            stream=True,
+        )
+        return stream
+
+    # In your UI
+    with st.chat_message("assistant"):
+        stream = stream_groq_response(messages, model=LLM_MODEL_NAME)
+        response = st.write_stream(
+            chunk.choices[0].delta.content or ""
+            for chunk in stream
+            if chunk.choices[0].delta.content
+        )
+
+    st.session_state.messages.append({"role": "assistant", "content": response})
+
+st.write_stream() handles the token-by-token display. User sees words appearing
+immediately instead of waiting for the full response. Groq at 300 t/s makes
+this feel very fast.
+
+
+--------------------------------------------------------------------------------
+Automated Evaluation Pipeline
+--------------------------------------------------------------------------------
+
+Me:
+we need to run all 20 questions from sample_questions.json through the pipeline
+and save the results. how do we structure the evaluation script
+
+Claude:
+    import json, time
+    from pathlib import Path
+
+    def run_evaluation(
+        questions_path: str,
+        output_path: str,
+        retriever,
+        generator
+    ) -> dict:
+        with open(questions_path) as f:
+            questions = json.load(f)
+
+        results = []
+        passed = 0
+
+        for q in questions:
+            qid = q["qid"]
+            question = q["question"]
+            track = q["track"]
+
+            try:
+                start = time.perf_counter()
+                chunks = retriever.retrieve(question)
+                answer = generator.generate(question, chunks)
+                latency = time.perf_counter() - start
+
+                result = {
+                    "qid": qid,
+                    "track": track,
+                    "question": question,
+                    "answer": answer,
+                    "retrieved_sources": [c.get("document_name") for c in chunks],
+                    "retrieved_pages": [c.get("page_number") for c in chunks],
+                    "chunks_retrieved": len(chunks),
+                    "latency_s": round(latency, 3),
+                    "has_media": any(c.get("media_path") for c in chunks),
+                }
+                results.append(result)
+                passed += 1
+                print(f"[OK] {qid} ({track[:20]}): {latency:.2f}s, {len(chunks)} chunks")
+
+            except Exception as e:
+                results.append({"qid": qid, "error": str(e), "question": question})
+                print(f"[ERROR] {qid}: {e}")
+
+        summary = {
+            "total": len(questions),
+            "passed": passed,
+            "failed": len(questions) - passed,
+            "avg_latency_s": round(
+                sum(r.get("latency_s", 0) for r in results if "latency_s" in r) / max(passed, 1),
+                3
+            )
+        }
+
+        output = {"summary": summary, "results": results}
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)
+
+        print(f"\n=== Evaluation Complete ===")
+        print(f"Passed: {passed}/{len(questions)}")
+        print(f"Avg latency: {summary['avg_latency_s']}s")
+        return summary
+
+Me:
+for tracking metrics like retrieval precision and hallucination rate, how do we
+score those automatically without manually checking every answer
+
+Claude:
+For 20 questions, manual annotation is actually the right call for precision.
+Spend 30 minutes labeling which document each answer should come from — you'll
+have ground truth. Then auto-check:
+
+    def score_retrieval_precision(results: list[dict], ground_truth: dict) -> float:
+        correct = 0
+        for r in results:
+            qid = r["qid"]
+            if qid not in ground_truth:
+                continue
+            expected_source = ground_truth[qid]["source_document"]
+            retrieved_sources = r.get("retrieved_sources", [])
+            if any(expected_source.lower() in src.lower() for src in retrieved_sources):
+                correct += 1
+        return correct / max(len(results), 1)
+
+For hallucination detection, use an LLM judge — but use a cheap fast model
+(llama-3.1-8b-instant) not your main qwen model:
+
+    def judge_for_hallucination(question: str, answer: str, context: str) -> bool:
+        prompt = f"""Does the following answer contain any claims NOT supported by the context?
+
+Context:
+{context[:1000]}
+
+Answer:
+{answer[:500]}
+
+Reply with only YES (hallucination present) or NO (fully grounded)."""
+
+        result = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=5,
+            temperature=0
+        )
+        return "YES" in result.choices[0].message.content.upper()
+
+Me:
+we want to track the metrics in a table format for the submission report.
+how do we compute and display retrieval precision, citation accuracy,
+hallucination rate, and modality success rate
+
+Claude:
+Compute them from your results JSON after the eval run:
+
+    def compute_metrics(results: list[dict], ground_truth: dict) -> dict:
+        total = len(results)
+        retrieval_correct = 0
+        citation_correct = 0
+        no_hallucination = 0
+        modality_success = 0
+        modality_total = 0
+
+        for r in results:
+            qid = r.get("qid", "")
+            gt = ground_truth.get(qid, {})
+
+            # Retrieval precision
+            if any(gt.get("source", "").lower() in s.lower()
+                   for s in r.get("retrieved_sources", [])):
+                retrieval_correct += 1
+
+            # Citation accuracy — check if answer contains [Document, Page X]
+            import re
+            if re.search(r'\[.+?,\s*Page\s*\d+\]', r.get("answer", "")):
+                citation_correct += 1
+
+            # Hallucination (from judge results stored separately)
+            if not r.get("hallucinated", False):
+                no_hallucination += 1
+
+            # Modality success — for visual/table tracks
+            if "1A" in r.get("track", ""):
+                modality_total += 1
+                if r.get("has_media"):
+                    modality_success += 1
+
+        return {
+            "retrieval_precision": f"{retrieval_correct}/{total} ({retrieval_correct/total*100:.1f}%)",
+            "citation_accuracy": f"{citation_correct}/{total} ({citation_correct/total*100:.1f}%)",
+            "hallucination_rate": f"{total-no_hallucination}/{total} ({(total-no_hallucination)/total*100:.1f}%)",
+            "modality_success_rate": f"{modality_success}/{modality_total}" if modality_total else "N/A",
+        }
+
+Print this dict as a table for your submission report.
+Format it in markdown and paste straight into the report.
+
+Me:
+how do we handle the case where the groq api rate limits us during evaluation
+since 20 consecutive calls might hit limits
+
+Claude:
+Add a small sleep between calls and wrap in retry logic:
+
+    import time
+
+    def call_groq_with_retry(messages, model, max_retries=3, delay=2.0):
+        for attempt in range(max_retries):
+            try:
+                response = groq_client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=800,
+                    temperature=0.1,
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                if "rate_limit" in str(e).lower() or "429" in str(e):
+                    print(f"Rate limited. Waiting {delay}s before retry {attempt+1}...")
+                    time.sleep(delay)
+                    delay *= 2   # exponential backoff
+                else:
+                    raise
+
+        raise RuntimeError(f"Failed after {max_retries} retries")
+
+Groq's free tier allows 30 requests/minute. 20 questions with 1-2s latency
+each should be well within limits. But having the retry logic is good practice
+anyway — network hiccups also trigger it.
+
+================================================================================
+END OF LOG — P4 (S. Dharshan)
+================================================================================

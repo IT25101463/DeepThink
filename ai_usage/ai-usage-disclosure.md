@@ -13,7 +13,7 @@ In compliance with **Section 4.1 (AI Usage Policy)** of the SLIIT Codefest 2026 
 
 | AI Tool / Model | Primary Purpose | Development Stage Used |
 | :--- | :--- | :--- |
-| **Claude 3.7 Sonnet / Google Antigravity** | Architectural brainstorming, drafting parser boilerplate, prompt refinement | Architecture Scaffolding, Ingestion, UI & Hardening |
+| **Claude Sonnet 4.6 (via Google Antigravity)** | Architectural brainstorming, drafting parser boilerplate, prompt refinement | Architecture Scaffolding, Ingestion, UI & Hardening |
 | **Groq Cloud (`qwen/qwen3.8-27b`)** | Ultra-fast runtime LPU generation engine (300+ tokens/sec, ~1.35s latency) | Runtime Inference, Grounding & Evaluation |
 | **HuggingFace (`BAAI/bge-small-en-v1.5`)** | 100% Free local dense embeddings for persistent ChromaDB vector retrieval | Vector Embedding & Persistent ChromaDB Indexing |
 
@@ -41,4 +41,4 @@ In compliance with **Section 4.1 (AI Usage Policy)** of the SLIIT Codefest 2026 
 
 - **No Unvalidated Code:** Every script generated or suggested by an AI tool was reviewed, modified, and locally tested on real Ashen Era corpus files by the assigned module lead.
 - **Defense Readiness:** Every team member has reviewed all 4 modules and is prepared to explain, defend, and live-code modifications before the judging panel during the final round.
-- **Chat Logs Exported:** Raw plain-text exports of all development chat sessions with AI assistants are preserved in `ai_usage/claude.md` and related files.
+- **Chat Logs Exported:** Raw plain-text exports of all development chat sessions with Claude Sonnet 4.6 (Google Antigravity) are preserved as four separate per-member files: `claude_p1_fatheen.txt`, `claude_p2_shakeer.txt`, `claude_p3_rasheed.txt`, `claude_p4_dharshan.txt`. Logs were individually gathered from each team member and compiled into separate files per member role for reviewer readability and convenience.
