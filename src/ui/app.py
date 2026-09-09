@@ -36,15 +36,73 @@ from src.generation.generator import generate_answer, resolve_media_path
 
 
 def load_sample_questions() -> List[Dict[str, Any]]:
-    """Loads the 20 benchmark questions for fast demo selection."""
+    """
+    Loads all demonstration questions and the 20 official benchmark questions
+    for easy one-click selection during live video recording.
+    """
+    # 1. Dedicated Live Demo Sequence (Steps 1 to 7)
+    demo_questions = [
+        {
+            "qid": "DEMO 1",
+            "track": "Demo: Greeting Fast-Path",
+            "question": "Hi",
+            "target_modality": "text"
+        },
+        {
+            "qid": "DEMO 2",
+            "track": "1A: Heraldry Banner Plate",
+            "question": "What is the central emblem on the banner of House Morvain?",
+            "target_modality": "image-caption"
+        },
+        {
+            "qid": "DEMO 3",
+            "track": "1A: Creature Figure Plate",
+            "question": "According to the official threat-classification plate, what numerical rating is assigned to the creature known as the Weeping Lurker?",
+            "target_modality": "image-caption"
+        },
+        {
+            "qid": "DEMO 4",
+            "track": "1A: Military Figure Plate",
+            "question": "According to the figure plate illustrating Emberdeep’s forces, what is the recorded total of its garrison strength?",
+            "target_modality": "image-caption"
+        },
+        {
+            "qid": "DEMO 5",
+            "track": "Multi-Hop: Cross-Document Comparison",
+            "question": "Compare the garrison of Marrowwatch and Emberdeep",
+            "target_modality": "table"
+        },
+        {
+            "qid": "DEMO 6",
+            "track": "Guardrail: Real-World Test",
+            "question": "Who was Napoleon Bonaparte?",
+            "target_modality": "text"
+        },
+        {
+            "qid": "DEMO 7",
+            "track": "Guardrail: Zero Hallucination",
+            "question": "What is the secret weakness of King Alden?",
+            "target_modality": "text"
+        },
+        {
+            "qid": "DEMO 8",
+            "track": "Demo: Session Exit",
+            "question": "Goodbye",
+            "target_modality": "text"
+        }
+    ]
+
+    # 2. Official 20 Benchmark Questions
     sample_file = DATA_DIR / "sample_questions.json"
+    benchmark_questions = []
     if sample_file.exists():
         try:
             with open(sample_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                benchmark_questions = json.load(f)
         except Exception:
             pass
-    return []
+
+    return demo_questions + benchmark_questions
 
 
 def get_corpus_stats() -> Dict[str, Any]:
@@ -213,6 +271,34 @@ def main():
             margin-bottom: 10px;
             background-color: #F8FAFC;
         }
+        /* Fix selectbox truncation so questions wrap cleanly */
+        div[data-baseweb="select"] {
+            min-height: auto;
+        }
+        div[data-baseweb="select"] div {
+            white-space: normal !important;
+            word-break: break-word !important;
+            line-height: 1.35 !important;
+        }
+        div[data-baseweb="popover"] ul li {
+            white-space: normal !important;
+            word-break: break-word !important;
+            padding-top: 8px !important;
+            padding-bottom: 8px !important;
+            line-height: 1.4 !important;
+        }
+        .question-preview-box {
+            background-color: #F8FAFC;
+            border: 1px solid #CBD5E1;
+            border-left: 4px solid #2563EB;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 0.86rem;
+            color: #1E293B;
+            margin-top: 8px;
+            margin-bottom: 10px;
+            line-height: 1.45;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -227,14 +313,26 @@ def main():
         selected_sample = None
         if sample_questions:
             st.markdown("#### 🎯 Benchmark Questions Preset")
-            q_options = [f"[{q.get('qid', 'Q')}] {q.get('question', '')[:60]}..." for q in sample_questions]
             selected_idx = st.selectbox(
-                "Select Sample Question (20 Benchmark Suite):", 
-                range(len(q_options)), 
-                format_func=lambda i: q_options[i]
+                "Select Benchmark Question:", 
+                range(len(sample_questions)), 
+                format_func=lambda i: f"[{sample_questions[i].get('qid', 'Q')}] {sample_questions[i].get('question', '')}"
             )
-            if st.button("Load Question into Chat", width="stretch"):
-                selected_sample = sample_questions[selected_idx]["question"]
+            
+            # Full question preview box so viewers can read the entire question with zero truncation
+            current_q = sample_questions[selected_idx].get("question", "")
+            target_mod = sample_questions[selected_idx].get("target_modality", "text")
+            mod_label = "🖼️ Visual Figure Plate" if target_mod == "image-caption" else ("📊 Structured Table" if target_mod == "table" else "📜 Historical Lore")
+            st.markdown(
+                f"<div class='question-preview-box'>"
+                f"<div style='font-size: 0.75rem; font-weight: 700; color: #64748B; margin-bottom: 4px;'>QUESTION DETAILS &bull; {mod_label}</div>"
+                f"<div style='font-weight: 500;'>{current_q}</div>"
+                f"</div>", 
+                unsafe_allow_html=True
+            )
+            
+            if st.button("🚀 Load Question into Chat", width="stretch"):
+                selected_sample = current_q
 
         st.markdown("---")
         st.markdown("#### 🤖 Autonomous RAG 3.0 Engine")
@@ -274,23 +372,27 @@ def main():
         with st.chat_message(msg["role"]):
             render_message_content(msg["content"])
             
+            # Persist and display telemetry caption under assistant messages
+            if msg.get("caption"):
+                st.caption(msg["caption"])
+            
             # Render media files if embedded paths exist in assistant message
             if msg["role"] == "assistant" and msg.get("chunks"):
                 chunks = msg.get("chunks", [])
-                with st.expander(f"🔍 View {len(chunks)} Retrieved Context Chunks & Modality Breakdown"):
+                with st.expander(f"🔍 Inspect {len(chunks)} Retrieved Context Chunks & Modality Breakdown"):
                     for idx, c in enumerate(chunks, 1):
                         modality = c.get("modality", "text")
                         badge_class = "modality-badge-image" if modality == "image-caption" else ("modality-badge-table" if modality == "table" else "modality-badge-text")
                         
-                        st.markdown(f"**Chunk #{idx}** &bull; Source: `{c.get('document_name')}` (Page {c.get('page_number')}) &bull; <span class='{badge_class}'>{modality.upper()}</span> &bull; Relevance: `{c.get('relevance_score', 0.0)}`", unsafe_allow_html=True)
+                        st.markdown(f"**Chunk #{idx}** &bull; Source: `{c.get('document_name')}` (Page {c.get('page_number')}) &bull; <span class='{badge_class}'>{modality.upper()}</span> &bull; Boosted Score: `{c.get('relevance_score', 0.0)}` &bull; Raw Sim: `{c.get('raw_similarity', 0.0)}`", unsafe_allow_html=True)
                         
                         media_p = c.get("media_path")
                         if media_p:
                             resolved = resolve_media_path(media_p)
                             if resolved and (PROJECT_ROOT / resolved).exists():
-                                st.image(str(PROJECT_ROOT / resolved), caption=c.get("caption") or "Archival Figure Plate", width=420)
+                                st.image(str(PROJECT_ROOT / resolved), caption=c.get("caption") or "Archival Figure Plate", width=400)
                         
-                        st.text(c.get("content", "")[:300] + ("..." if len(c.get("content", "")) > 300 else ""))
+                        st.text(c.get("content", "")[:350] + ("..." if len(c.get("content", "")) > 350 else ""))
                         st.markdown("---")
 
     # Always render the chat input so it never disappears from the UI
@@ -310,6 +412,7 @@ def main():
             # Fast-Path Check: Refuse off-domain or handle greetings WITHOUT touching Vector DB
             is_handled, refusal_msg, scope_category = check_query_domain_scope(user_prompt)
             
+            caption_text = ""
             if is_handled:
                 # Fast Path: Zero Vector DB Search & Zero Token Usage!
                 response_text = refusal_msg
@@ -318,7 +421,8 @@ def main():
                 elapsed_time = round(time.time() - start_time, 3)
                 
                 render_message_content(response_text)
-                st.caption(f"⚡ Guardrail Fast-Path: **{elapsed_time}s** &bull; Vector DB: `Skipped ({scope_category.upper()})` &bull; Tokens: `0`")
+                caption_text = f"⚡ Guardrail Fast-Path: **{elapsed_time}s** &bull; Vector DB: `Skipped ({scope_category.upper()})` &bull; Tokens: `0`"
+                st.caption(caption_text)
             else:
                 # In-Scope Query: Execute Vector Retrieval & Groq LPU Generation
                 intent_info = analyze_query_intent(user_prompt)
@@ -344,11 +448,13 @@ def main():
                 render_message_content(response_text)
                 
                 if crag_verdict == "OUT_OF_DOMAIN":
-                    st.caption(f"🛡️ **Universal Scope Gate:** **{elapsed_time}s** &bull; Domain Sim: `{top_sim}` (OOD) &bull; Status: `Universal Refusal`")
+                    caption_text = f"🛡️ **Universal Scope Gate:** **{elapsed_time}s** &bull; Domain Sim: `{top_sim}` (OOD) &bull; Status: `Universal Refusal`"
                     display_chunks = []
                 else:
-                    st.caption(f"⚡ **Groq LPU Latency:** **{elapsed_time}s** &bull; Chunks: `{len(retrieved_chunks)} (Adaptive)` &bull; Domain Sim: `{top_sim}` &bull; CRAG: `{crag_verdict}` &bull; Modality: `{target_mod}`")
+                    caption_text = f"⚡ **Groq LPU Latency:** **{elapsed_time}s** &bull; Chunks: `{len(retrieved_chunks)} (Adaptive)` &bull; Domain Sim: `{top_sim}` &bull; CRAG: `{crag_verdict}` &bull; Modality: `{target_mod}`"
                     display_chunks = retrieved_chunks
+
+                st.caption(caption_text)
 
             # 4. Render Expandable Context Inspector
             if display_chunks:
@@ -372,7 +478,8 @@ def main():
         st.session_state.messages.append({
             "role": "assistant",
             "content": response_text,
-            "chunks": display_chunks
+            "chunks": display_chunks,
+            "caption": caption_text
         })
         st.rerun()
 
