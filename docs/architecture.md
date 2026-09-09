@@ -17,30 +17,31 @@ DeepThink is engineered as an **Autonomous Multimodal Compound RAG 3.0 System**.
 <summary><b>Click to view interactive Mermaid Flowchart</b></summary>
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'fontSize': '13px' }, 'flowchart': { 'padding': 24, 'curve': 'basis' }}}%%
 flowchart TD
-    User(["👤 User Query"]) --> S1["1. Pre-Retrieval<br/>Domain Guardrail"]
+    User(["&nbsp; 👤 User Query &nbsp;"]) --> S1["&nbsp; 1. Pre-Retrieval Domain Guardrail &nbsp;"]
 
-    S1 -->|"Out-of-Scope / Abuse / Sensor"| FastPath["⚡ Fast-Path Refusal<br/>(Sub-10ms, 0 Tokens)"]
-    FastPath --> UI(["🖥️ Streamlit UI"])
+    S1 -->|"Out-of-Scope / Abuse"| FastPath["&nbsp; ⚡ Fast-Path Refusal (Sub-10ms, 0 Tokens) &nbsp;"]
+    FastPath --> UI(["&nbsp; 🖥️ Streamlit UI &nbsp;"])
 
-    S1 -->|"In-Scope Archival Query"| S2["2. Entity Extraction &<br/>Adaptive Budgeter"]
+    S1 -->|"In-Scope Query"| S2["&nbsp; 2. Entity Extraction & Adaptive Budgeter &nbsp;"]
 
-    S2 -->|"Intent: Single Fact / Visual"| K2["Target K = 2"]
-    S2 -->|"Intent: Comparative Matrix"| K6["Target K = 6 to 8"]
-    S2 -->|"Intent: Standard Lore"| K4["Target K = 4"]
+    S2 -->|"Single Fact / Visual"| K2["&nbsp; Target K = 2 &nbsp;"]
+    S2 -->|"Comparative Matrix"| K6["&nbsp; Target K = 6 to 8 &nbsp;"]
+    S2 -->|"Standard Lore"| K4["&nbsp; Target K = 4 &nbsp;"]
 
-    K2 & K6 & K4 --> S3["3. Agentic Decomposition &<br/>Hybrid Vector Search"]
+    K2 & K6 & K4 --> S3["&nbsp; 3. Agentic Decomposition & Hybrid Vector Search &nbsp;"]
 
-    S3 --> S4["4. Cross-Encoder<br/>Re-Ranking Engine"]
+    S3 --> S4["&nbsp; 4. Cross-Encoder Re-Ranking Engine &nbsp;"]
 
-    S4 -->|"Dossier & Multi-Entity Bonuses"| S5["5. Pre-Generation Verification<br/>& Noise Pruning"]
+    S4 -->|"Dossier & Multi-Entity"| S5["&nbsp; 5. Pre-Generation Verification & Pruning &nbsp;"]
 
-    S5 -->|"Elbow Method: Score &lt; 0.60 × Top"| DropTrailing["Discard Noise Chunks"]
-    S5 -->|"Token Packing: Cap at 2500 Tokens"| PackContext["Optimized Precision Context"]
+    S5 -->|"Elbow Drop: Score &lt; 0.60"| DropTrailing["&nbsp; Discard Noise Chunks &nbsp;"]
+    S5 -->|"Token Cap: 2,500 Tokens"| PackContext["&nbsp; Packed Precision Context &nbsp;"]
 
-    PackContext --> S6["6. Groq LPU Generation:<br/>qwen/qwen3.8-27b"]
+    PackContext --> S6["&nbsp; 6. Groq LPU Generation: qwen/qwen3.8-27b &nbsp;"]
 
-    S6 --> S7["7. Multimodal Renderer:<br/>Inline Figures & Tables"]
+    S6 --> S7["&nbsp; 7. Multimodal Renderer: Inline Figures & Tables &nbsp;"]
     S7 --> UI
 ```
 
