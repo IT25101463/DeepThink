@@ -189,16 +189,17 @@ Copy-Item configuration-example\.env.example .env
 
 ### 5.3 Running the Pipeline
 ```bash
-# Step 1: Parse, OCR, and extract figures/tables
+# Step 1 (Optional): Re-parse & OCR raw archive from scratch
+# Note: Pre-extracted chunks are already provided in data/chunks.json
 python -m src.ingestion.pipeline
 
-# Step 2: Index chunks into local ChromaDB
+# Step 2: Index chunks into local ChromaDB (~45s first run)
 python -m src.retrieval.indexer
 
-# Step 3: Run automated test suite (75 tests)
+# Step 3: Run automated test suite (76 tests pass cleanly)
 python -m unittest discover -s tests
 
-# Step 4: Run benchmark evaluation
+# Step 4: Run automated benchmark evaluation on 20 questions
 python -m src.evaluation.evaluator
 
 # Step 5: Launch the interactive Streamlit assistant
